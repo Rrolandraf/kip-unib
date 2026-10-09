@@ -24,6 +24,16 @@ type Mahasiswa = {
   must_change_password: boolean;
 };
 
+// ==========================================
+// UKURAN BATCH
+// 25 baris × ~0,7 detik = ~18 detik per batch
+// Aman di bawah maxDuration 60 detik
+// ==========================================
+const BATCH_SIZE = 25;
+
+// Jeda kecil antar batch (ms) — menghindari rate limit
+const JEDA_ANTAR_BATCH = 200;
+
 export default function AdminMahasiswaPage() {
   const router = useRouter();
 
@@ -53,6 +63,14 @@ export default function AdminMahasiswaPage() {
     berhasil: number;
     gagal: number;
     detail: HasilImport[];
+  } | null>(null);
+
+  // Progress batch
+  const [progress, setProgress] = useState<{
+    batch: number;
+    totalBatches: number;
+    selesai: number;
+    total: number;
   } | null>(null);
 
   // Daftar mahasiswa
@@ -323,11 +341,15 @@ export default function AdminMahasiswaPage() {
     XLSX.writeFile(workbook, "template-mahasiswa-kip.xlsx");
   }
 
+  // ==========================================
+  // IMPORT EXCEL — BATCH
+  // ==========================================
   async function handleFileImport(
     e: React.ChangeEvent<HTMLInputElement>
   ) {
     setErrorImport("");
     setHasilImport(null);
+    setProgress(null);
 
     const file = e.target.files?.[0];
 
@@ -336,6 +358,9 @@ export default function AdminMahasiswaPage() {
     e.target.value = "";
 
     try {
+      // ==========================================
+      // 1. BACA FILE EXCEL
+      // ==========================================
       const arrayBuffer = await file.arrayBuffer();
       const workbook = XLSX.read(arrayBuffer, {
         type: "array",
@@ -439,8 +464,9 @@ export default function AdminMahasiswaPage() {
         return;
       }
 
-      setLoadingImport(true);
-
+      // ==========================================
+      // 2. KIRIM PER BATCH
+      // ==========================================
       const token = await getToken();
 
       if (!token) {
@@ -448,28 +474,120 @@ export default function AdminMahasiswaPage() {
         return;
       }
 
-      const res = await fetch("/api/admin/mahasiswa/import", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ rows: rowsBersih }),
+      const totalBatches = Math.ceil(
+        rowsBersih.length / BATCH_SIZE
+      );
+
+      setLoadingImport(true);
+      setProgress({
+        batch: 0,
+        totalBatches,
+        selesai: 0,
+        total: rowsBersih.length,
       });
 
-      const result = await res.json();
+      const semuaDetail: HasilImport[] = [];
+      let totalBerhasil = 0;
+      let totalGagal = 0;
 
-      if (!res.ok) {
-        setErrorImport(
-          result.error || "Gagal mengimport data mahasiswa."
+      for (
+        let i = 0;
+        i < rowsBersih.length;
+        i += BATCH_SIZE
+      ) {
+        const batchRows = rowsBersih.slice(
+          i,
+          i + BATCH_SIZE
         );
-        return;
+
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+
+        try {
+          const res = await fetch(
+            "/api/admin/mahasiswa/import",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                rows: batchRows,
+              }),
+            }
+          );
+
+          const result = await res.json();
+
+          if (!res.ok) {
+            // Batch gagal total — tandai semua baris di batch ini gagal
+            batchRows.forEach((r, idx) => {
+              semuaDetail.push({
+                baris: i + idx + 1,
+                npm: r.npm,
+                status: "gagal",
+                alasan:
+                  result.error ||
+                  "Batch gagal diproses di server.",
+              });
+              totalGagal++;
+            });
+          } else {
+            totalBerhasil += result.berhasil ?? 0;
+            totalGagal += result.gagal ?? 0;
+
+            (result.detail || []).forEach(
+              (d: HasilImport) => {
+                semuaDetail.push({
+                  ...d,
+                  baris: i + d.baris,
+                });
+              }
+            );
+          }
+        } catch (err) {
+          console.error(
+            `Batch ${batchNumber} error:`,
+            err
+          );
+
+          batchRows.forEach((r, idx) => {
+            semuaDetail.push({
+              baris: i + idx + 1,
+              npm: r.npm,
+              status: "gagal",
+              alasan:
+                "Koneksi ke server gagal. Coba upload ulang nanti.",
+            });
+            totalGagal++;
+          });
+        }
+
+        setProgress({
+          batch: batchNumber,
+          totalBatches,
+          selesai: Math.min(
+            i + BATCH_SIZE,
+            rowsBersih.length
+          ),
+          total: rowsBersih.length,
+        });
+
+        // Jeda kecil antar batch
+        if (i + BATCH_SIZE < rowsBersih.length) {
+          await new Promise((r) =>
+            setTimeout(r, JEDA_ANTAR_BATCH)
+          );
+        }
       }
 
+      // ==========================================
+      // 3. SELESAI
+      // ==========================================
       setHasilImport({
-        berhasil: result.berhasil ?? 0,
-        gagal: result.gagal ?? 0,
-        detail: result.detail ?? [],
+        berhasil: totalBerhasil,
+        gagal: totalGagal,
+        detail: semuaDetail,
       });
 
       await loadDaftarMahasiswa();
@@ -480,6 +598,7 @@ export default function AdminMahasiswaPage() {
       );
     } finally {
       setLoadingImport(false);
+      setProgress(null);
     }
   }
 
@@ -562,7 +681,8 @@ export default function AdminMahasiswaPage() {
 
           <p className="text-slate-500 text-sm mb-6 mt-1">
             Tambah banyak mahasiswa sekaligus dari file Excel
-            (.xlsx / .xls).
+            (.xlsx / .xls). Mendukung file besar (ribuan
+            baris).
           </p>
 
           <div className="flex flex-wrap gap-3 mb-5">
@@ -655,8 +775,66 @@ export default function AdminMahasiswaPage() {
                 Email login otomatis:{" "}
                 <b>&lt;NIM&gt;@kip.unib.ac.id</b>.
               </li>
+
+              <li>
+                NIM yang <b>sudah terdaftar akan dilewati</b>{" "}
+                (tidak dobel, tidak ditimpa).
+              </li>
+
+              <li>
+                Untuk file besar (ribuan baris), biarkan tab
+                ini terbuka sampai proses selesai (
+                <b>jangan tutup browser</b>).
+              </li>
             </ul>
           </div>
+
+          {/* PROGRESS BAR */}
+          {progress && (
+            <div className="mt-5 bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="font-semibold text-blue-800 text-sm">
+                  Sedang mengimpor...
+                </p>
+
+                <p className="text-xs text-blue-700 font-mono">
+                  Batch {progress.batch}/{progress.totalBatches}
+                </p>
+              </div>
+
+              <div className="w-full h-3 bg-blue-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-500 ease-out"
+                  style={{
+                    width: `${
+                      progress.total > 0
+                        ? (progress.selesai / progress.total) * 100
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+
+              <p className="text-xs text-blue-700 mt-2">
+                {progress.selesai} / {progress.total} baris
+                {" "}
+                (
+                {progress.total > 0
+                  ? Math.round(
+                      (progress.selesai / progress.total) * 100
+                    )
+                  : 0}
+                %)
+              </p>
+
+              <p className="text-xs text-blue-600 mt-2 italic">
+                ⚠️ Jangan tutup tab ini sampai proses selesai.
+                Kalau terputus, upload ulang file yang sama —
+                baris yang sudah masuk akan otomatis
+                dilewati.
+              </p>
+            </div>
+          )}
 
           {errorImport && (
             <div className="mt-5 bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm">
@@ -678,59 +856,66 @@ export default function AdminMahasiswaPage() {
               </div>
 
               {hasilImport.detail.length > 0 && (
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left px-3 py-2.5 font-semibold text-slate-600">
-                          Baris
-                        </th>
-                        <th className="text-left px-3 py-2.5 font-semibold text-slate-600">
-                          NPM
-                        </th>
-                        <th className="text-left px-3 py-2.5 font-semibold text-slate-600">
-                          Status
-                        </th>
-                        <th className="text-left px-3 py-2.5 font-semibold text-slate-600">
-                          Alasan
-                        </th>
-                      </tr>
-                    </thead>
+                <details className="border border-slate-200 rounded-xl overflow-hidden">
+                  <summary className="bg-slate-50 px-4 py-3 cursor-pointer text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                    Lihat rincian per baris (
+                    {hasilImport.detail.length} baris)
+                  </summary>
 
-                    <tbody>
-                      {hasilImport.detail.map((d, idx) => (
-                        <tr
-                          key={idx}
-                          className="border-t border-slate-100"
-                        >
-                          <td className="px-3 py-2.5 text-slate-700">
-                            {d.baris}
-                          </td>
-
-                          <td className="px-3 py-2.5 font-mono text-slate-700">
-                            {d.npm || "-"}
-                          </td>
-
-                          <td
-                            className={`px-3 py-2.5 font-medium ${
-                              d.status === "berhasil"
-                                ? "text-emerald-700"
-                                : "text-red-700"
-                            }`}
-                          >
-                            {d.status === "berhasil"
-                              ? "Berhasil"
-                              : "Gagal"}
-                          </td>
-
-                          <td className="px-3 py-2.5 text-slate-500">
-                            {d.alasan || "-"}
-                          </td>
+                  <div className="max-h-96 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 sticky top-0">
+                        <tr>
+                          <th className="text-left px-3 py-2.5 font-semibold text-slate-600">
+                            Baris
+                          </th>
+                          <th className="text-left px-3 py-2.5 font-semibold text-slate-600">
+                            NPM
+                          </th>
+                          <th className="text-left px-3 py-2.5 font-semibold text-slate-600">
+                            Status
+                          </th>
+                          <th className="text-left px-3 py-2.5 font-semibold text-slate-600">
+                            Alasan
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+
+                      <tbody>
+                        {hasilImport.detail.map((d, idx) => (
+                          <tr
+                            key={idx}
+                            className="border-t border-slate-100"
+                          >
+                            <td className="px-3 py-2.5 text-slate-700">
+                              {d.baris}
+                            </td>
+
+                            <td className="px-3 py-2.5 font-mono text-slate-700">
+                              {d.npm || "-"}
+                            </td>
+
+                            <td
+                              className={`px-3 py-2.5 font-medium ${
+                                d.status === "berhasil"
+                                  ? "text-emerald-700"
+                                  : "text-red-700"
+                              }`}
+                            >
+                              {d.status === "berhasil"
+                                ? "Berhasil"
+                                : "Gagal"}
+                            </td>
+
+                            <td className="px-3 py-2.5 text-slate-500">
+                              {d.alasan || "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
               )}
             </div>
           )}
@@ -1007,9 +1192,9 @@ export default function AdminMahasiswaPage() {
                 : "Tidak ada mahasiswa yang cocok dengan pencarian."}
             </div>
           ) : (
-            <div className="overflow-x-auto -mx-6 px-6">
+            <div className="overflow-x-auto -mx-6 px-6 max-h-[600px] overflow-y-auto">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 bg-white z-10">
                   <tr className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-200">
                     <th className="py-3 pr-3">NPM</th>
                     <th className="py-3 pr-3">Nama</th>

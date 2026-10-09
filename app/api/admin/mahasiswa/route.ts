@@ -7,9 +7,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
 );
 
-// ==========================================
-// HELPER: CEK ADMIN
-// ==========================================
 async function cekAdmin(request: NextRequest) {
   const authorization = request.headers.get("authorization");
 
@@ -56,23 +53,60 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { data, error } = await supabaseAdmin
+    const { count, error: countError } = await supabaseAdmin
       .from("mahasiswa")
-      .select(
-        "id, nama, npm, fakultas, prodi, angkatan, nama_beasiswa, keterangan, must_change_password"
-      )
-      .order("nama", { ascending: true });
+      .select("id", { count: "exact", head: true });
 
-    if (error) {
-      console.error("LIST MAHASISWA ERROR:", error);
-
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+    if (countError) {
+      console.error("COUNT MAHASISWA ERROR:", countError);
     }
 
-    return NextResponse.json({ mahasiswa: data || [] });
+    const total = count ?? 0;
+    const BATCH_SIZE = 1000;
+    const semuaData: any[] = [];
+
+    const jumlahBatch = Math.max(
+      1,
+      Math.ceil(total / BATCH_SIZE)
+    );
+
+    for (let i = 0; i < jumlahBatch; i++) {
+      const from = i * BATCH_SIZE;
+      const to = from + BATCH_SIZE - 1;
+
+      const { data, error } = await supabaseAdmin
+        .from("mahasiswa")
+        .select(
+          "id, nama, npm, fakultas, prodi, angkatan, nama_beasiswa, keterangan, must_change_password"
+        )
+        .range(from, to)
+        .order("nama", { ascending: true });
+
+      if (error) {
+        console.error(
+          `LIST MAHASISWA BATCH ${i} ERROR:`,
+          error
+        );
+
+        return NextResponse.json(
+          { error: error.message },
+          { status: 500 }
+        );
+      }
+
+      if (data) {
+        semuaData.push(...data);
+      }
+
+      if (!data || data.length < BATCH_SIZE) {
+        break;
+      }
+    }
+
+    return NextResponse.json({
+      mahasiswa: semuaData,
+      total: total || semuaData.length,
+    });
   } catch (error) {
     console.error("GET MAHASISWA API ERROR:", error);
 
