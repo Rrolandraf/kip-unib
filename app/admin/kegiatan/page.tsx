@@ -22,9 +22,7 @@ export default function KegiatanAdminPage() {
 
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
-  const [deletingId, setDeletingId] = useState<string | null>(
-    null
-  );
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -48,9 +46,7 @@ export default function KegiatanAdminPage() {
 
       const { data, error } = await supabase
         .from("kegiatan")
-        .select(
-          "id, judul, deskripsi, deadline, absen_mulai, status"
-        )
+        .select("id, judul, deskripsi, deadline, absen_mulai, status")
         .order("deadline", { ascending: true });
 
       if (error) {
@@ -116,6 +112,19 @@ export default function KegiatanAdminPage() {
         return;
       }
 
+      // ==========================================
+      // KONVERSI LOCAL TIME KE UTC DI CLIENT
+      // ==========================================
+      // Input datetime-local menghasilkan string
+      // "2026-10-13T08:00" (tanpa timezone).
+      // new Date() di browser menganggapnya sebagai
+      // local time (WIB). toISOString() mengubahnya
+      // jadi UTC yang benar.
+      const deadlineISO = new Date(deadline).toISOString();
+      const absenMulaiISO = absenMulai
+        ? new Date(absenMulai).toISOString()
+        : null;
+
       const response = await fetch("/api/admin/kegiatan", {
         method: "POST",
         headers: {
@@ -125,8 +134,8 @@ export default function KegiatanAdminPage() {
         body: JSON.stringify({
           nama: nama.trim(),
           deskripsi: deskripsi.trim(),
-          deadline,
-          absen_mulai: absenMulai || null,
+          deadline: deadlineISO,
+          absen_mulai: absenMulaiISO,
         }),
       });
 
