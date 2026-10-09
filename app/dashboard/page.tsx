@@ -885,10 +885,21 @@ export default function DashboardMahasiswa() {
         </section>
 
         {/* FOOTER */}
-        <footer className="pt-6 pb-2 text-center">
-          <p className="text-xs text-slate-500 font-medium">
-            © {new Date().getFullYear()} Sistem Informasi Beasiswa — Universitas Bengkulu
-          </p>
+        <footer className="pt-6 pb-2">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3 text-center">
+            <p className="text-xs text-slate-500 font-medium">
+              © 2026 Sistem Informasi Beasiswa Universitas Bengkulu
+            </p>
+
+            <span className="hidden sm:inline text-slate-300">•</span>
+
+            <p className="text-xs text-slate-400">
+              Powered By{" "}
+              <span className="font-semibold text-slate-600">
+                RdZ Production
+              </span>
+            </p>
+          </div>
         </footer>
       </div>
     </main>
