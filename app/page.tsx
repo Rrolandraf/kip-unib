@@ -19,7 +19,7 @@ export default function Home() {
 
             <div>
               <h1 className="text-sm font-bold text-slate-800 leading-tight">
-                KIP Kuliah
+                Beasiswa
               </h1>
 
               <p className="text-xs text-slate-500">
@@ -54,7 +54,7 @@ export default function Home() {
             </span>
 
             <h1 className="text-3xl md:text-5xl font-bold tracking-tight text-slate-800 leading-tight">
-              KIP Kuliah{" "}
+              Beasiswa{" "}
               <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                 Universitas Bengkulu
               </span>
@@ -62,7 +62,7 @@ export default function Home() {
 
             <p className="text-slate-600 mt-5 text-base md:text-lg leading-relaxed max-w-2xl mx-auto">
               Platform terintegrasi untuk mengelola data mahasiswa
-              penerima KIP Kuliah, kegiatan, absensi, dan
+              penerima beasiswa, kegiatan, absensi, dan
               pengumuman di lingkungan Universitas Bengkulu.
             </p>
 
@@ -154,7 +154,7 @@ export default function Home() {
               {
                 judul: "Kelola Kegiatan",
                 deskripsi:
-                  "Buat dan atur kegiatan KIP Kuliah lengkap dengan deadline absensi otomatis.",
+                  "Buat dan atur kegiatan lengkap dengan jadwal absensi otomatis.",
                 warna: "indigo",
                 icon: (
                   <path
@@ -167,7 +167,7 @@ export default function Home() {
               {
                 judul: "Berita & Pengumuman",
                 deskripsi:
-                  "Sampaikan informasi terbaru kepada seluruh mahasiswa penerima KIP.",
+                  "Sampaikan informasi terbaru kepada seluruh mahasiswa penerima beasiswa.",
                 warna: "amber",
                 icon: (
                   <path
@@ -247,8 +247,8 @@ export default function Home() {
       <footer className="border-t border-slate-100 bg-white/60 backdrop-blur-sm">
         <div className="max-w-6xl mx-auto px-6 py-6 flex flex-col md:flex-row items-center justify-between gap-3 text-center md:text-left">
           <p className="text-sm text-slate-500">
-            © {new Date().getFullYear()} Sistem Informasi KIP
-            Kuliah — Universitas Bengkulu
+            © {new Date().getFullYear()} Sistem Informasi Beasiswa
+            — Universitas Bengkulu
           </p>
 
           <p className="text-xs text-slate-400">

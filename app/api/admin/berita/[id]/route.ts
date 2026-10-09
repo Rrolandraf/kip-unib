@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-// ==========================================
-// HELPER: CEK ADMIN
-// ==========================================
 async function cekAdmin(request: NextRequest) {
   const authorization = request.headers.get("authorization");
 
@@ -28,11 +25,12 @@ async function cekAdmin(request: NextRequest) {
     return { error: "Sesi login tidak valid.", status: 401 } as const;
   }
 
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  const { data: profile, error: profileError } =
+    await supabaseAdmin
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
 
   if (profileError || !profile || profile.role !== "admin") {
     return {
@@ -42,6 +40,23 @@ async function cekAdmin(request: NextRequest) {
   }
 
   return { user } as const;
+}
+
+// ==========================================
+// HELPER: EKSTRAK PATH FILE DARI URL PUBLIK
+// ==========================================
+function ekstrakPathDariUrl(url: string): string | null {
+  try {
+    // Format URL: https://xxx.supabase.co/storage/v1/object/public/berita/<path>
+    const marker = "/storage/v1/object/public/berita/";
+    const idx = url.indexOf(marker);
+
+    if (idx === -1) return null;
+
+    return url.substring(idx + marker.length);
+  } catch {
+    return null;
+  }
 }
 
 // ==========================================
@@ -99,6 +114,43 @@ export async function PUT(
       updates.published = Boolean(body.published);
     }
 
+    // Lampiran
+    if (body.lampiran_url !== undefined) {
+      updates.lampiran_url = body.lampiran_url
+        ? String(body.lampiran_url).trim()
+        : null;
+    }
+
+    if (body.lampiran_tipe !== undefined) {
+      updates.lampiran_tipe = body.lampiran_tipe
+        ? String(body.lampiran_tipe).trim()
+        : null;
+    }
+
+    if (body.lampiran_nama !== undefined) {
+      updates.lampiran_nama = body.lampiran_nama
+        ? String(body.lampiran_nama).trim()
+        : null;
+    }
+
+    // ==========================================
+    // KALAU GANTI LAMPIRAN, HAPUS FILE LAMA
+    // ==========================================
+    if (body.hapus_lampiran_lama && body.lampiran_lama_url) {
+      const pathLama = ekstrakPathDariUrl(
+        String(body.lampiran_lama_url)
+      );
+
+      if (pathLama) {
+        await supabaseAdmin.storage
+          .from("berita")
+          .remove([pathLama])
+          .catch((err) =>
+            console.error("HAPUS FILE LAMA ERROR:", err)
+          );
+      }
+    }
+
     const { data, error } = await supabaseAdmin
       .from("berita")
       .update(updates)
@@ -145,6 +197,28 @@ export async function DELETE(
       );
     }
 
+    // Ambil lampiran_url dulu
+    const { data: berita } = await supabaseAdmin
+      .from("berita")
+      .select("lampiran_url")
+      .eq("id", id)
+      .single();
+
+    // Hapus file lampiran kalau ada
+    if (berita?.lampiran_url) {
+      const path = ekstrakPathDariUrl(berita.lampiran_url);
+
+      if (path) {
+        await supabaseAdmin.storage
+          .from("berita")
+          .remove([path])
+          .catch((err) =>
+            console.error("HAPUS FILE BERITA ERROR:", err)
+          );
+      }
+    }
+
+    // Hapus baris berita
     const { error } = await supabaseAdmin
       .from("berita")
       .delete()

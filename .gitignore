@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# Cegah folder bersarang & next cache di subfolder
+kip-unib/
+**/.next/

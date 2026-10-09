@@ -15,7 +15,7 @@ export default function AdminPage() {
     {
       judul: "Tambah Mahasiswa",
       deskripsi:
-        "Menambahkan akun mahasiswa KIP Kuliah dan mereset password.",
+        "Menambahkan akun mahasiswa penerima beasiswa dan mereset password.",
       href: "/admin/mahasiswa",
       warna: "blue",
       icon: (
@@ -38,7 +38,7 @@ export default function AdminPage() {
     {
       judul: "Kelola Kegiatan",
       deskripsi:
-        "Membuat kegiatan dan mengatur deadline absensi.",
+        "Membuat kegiatan dan mengatur jadwal absensi.",
       href: "/admin/kegiatan",
       warna: "indigo",
       icon: (
@@ -152,7 +152,7 @@ export default function AdminPage() {
               </h1>
 
               <p className="text-xs text-indigo-100 mt-0.5">
-                Sistem Informasi KIP Kuliah Universitas Bengkulu
+                Sistem Informasi Beasiswa Universitas Bengkulu
               </p>
             </div>
           </div>

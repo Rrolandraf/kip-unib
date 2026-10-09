@@ -59,6 +59,7 @@ export async function POST(request: Request) {
     const nama = body.nama?.trim();
     const deskripsi = body.deskripsi?.trim() || null;
     const deadline = body.deadline;
+    const absenMulai = body.absen_mulai || null;
 
     // 5. Validasi data
     if (!nama) {
@@ -70,38 +71,57 @@ export async function POST(request: Request) {
 
     if (!deadline) {
       return NextResponse.json(
-        { error: "Deadline wajib diisi." },
+        { error: "Batas akhir absen wajib diisi." },
         { status: 400 }
       );
     }
 
+    // Kalau absen_mulai diisi, pastikan tidak lebih besar dari deadline
+    if (absenMulai) {
+      const tglMulai = new Date(absenMulai).getTime();
+      const tglDeadline = new Date(deadline).getTime();
+
+      if (tglMulai >= tglDeadline) {
+        return NextResponse.json(
+          {
+            error:
+              "Jam mulai absen harus lebih awal dari batas akhir absen.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // 6. Simpan kegiatan
-   const { data: kegiatan, error: kegiatanError } =
-  await supabaseAdmin
-    .from("kegiatan")
-    .insert({
-      judul: nama,
-      deskripsi,
-      deadline: new Date(deadline).toISOString(),
-      status: "active",
-      created_by: userId,
-    })
-    .select()
-    .single();
+    const { data: kegiatan, error: kegiatanError } =
+      await supabaseAdmin
+        .from("kegiatan")
+        .insert({
+          judul: nama,
+          deskripsi,
+          deadline: new Date(deadline).toISOString(),
+          absen_mulai: absenMulai
+            ? new Date(absenMulai).toISOString()
+            : null,
+          status: "active",
+          created_by: userId,
+        })
+        .select()
+        .single();
 
- if (kegiatanError) {
-  console.error(
-    "INSERT KEGIATAN ERROR:",
-    kegiatanError
-  );
+    if (kegiatanError) {
+      console.error(
+        "INSERT KEGIATAN ERROR:",
+        kegiatanError
+      );
 
-  return NextResponse.json(
-    {
-      error: kegiatanError.message,
-    },
-    { status: 500 }
-  );
-}
+      return NextResponse.json(
+        {
+          error: kegiatanError.message,
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       message: "Kegiatan berhasil ditambahkan.",

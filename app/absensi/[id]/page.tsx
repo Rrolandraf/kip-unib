@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -9,6 +9,7 @@ type Kegiatan = {
   judul: string;
   deskripsi: string | null;
   deadline: string;
+  absen_mulai: string | null;
   status: string;
 };
 
@@ -21,10 +22,40 @@ export default function AbsensiPage() {
   const [kegiatan, setKegiatan] = useState<Kegiatan | null>(null);
   const [loading, setLoading] = useState(true);
   const [foto, setFoto] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(
+    null
+  );
   const [konfirmasi, setKonfirmasi] = useState(false);
   const [mengirim, setMengirim] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [sekarang, setSekarang] = useState(new Date());
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Update jam tiap detik
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSekarang(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // Preview foto
+  useEffect(() => {
+    if (!foto) {
+      setPreviewUrl(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(foto);
+    setPreviewUrl(url);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [foto]);
 
   useEffect(() => {
     async function loadKegiatan() {
@@ -39,7 +70,9 @@ export default function AbsensiPage() {
 
       const { data, error } = await supabase
         .from("kegiatan")
-        .select("id, judul, deskripsi, deadline, status")
+        .select(
+          "id, judul, deskripsi, deadline, absen_mulai, status"
+        )
         .eq("id", kegiatanId)
         .single();
 
@@ -107,21 +140,75 @@ export default function AbsensiPage() {
       }
 
       setSuccess("Absensi berhasil dikirim.");
-      setFoto(null);
-      setKonfirmasi(false);
+
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 1500);
     } catch (error) {
       console.error(error);
       setError("Terjadi kesalahan pada sistem.");
+      setMengirim(false);
     }
-
-    setMengirim(false);
   }
 
   function formatTanggal(tanggal: string) {
     return new Date(tanggal).toLocaleString("id-ID", {
-      dateStyle: "long",
-      timeStyle: "short",
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
+  }
+
+  function hitungCountdown(target: string) {
+    const selisih =
+      new Date(target).getTime() - sekarang.getTime();
+
+    if (selisih <= 0) {
+      return "Waktu telah berakhir";
+    }
+
+    const totalDetik = Math.floor(selisih / 1000);
+
+    const hari = Math.floor(totalDetik / 86400);
+    const jam = Math.floor((totalDetik % 86400) / 3600);
+    const menit = Math.floor((totalDetik % 3600) / 60);
+    const detik = totalDetik % 60;
+
+    if (hari > 0) {
+      return `${hari} hari ${jam} jam ${menit} menit`;
+    }
+
+    if (jam > 0) {
+      return `${jam} jam ${menit} menit ${detik} detik`;
+    }
+
+    return `${menit} menit ${detik} detik`;
+  }
+
+  // ==========================================
+  // STATUS JADWAL
+  // ==========================================
+  function statusJadwal(): "belum_mulai" | "buka" | "tutup" {
+    if (!kegiatan) return "tutup";
+
+    const skrg = sekarang.getTime();
+    const mulai = kegiatan.absen_mulai
+      ? new Date(kegiatan.absen_mulai).getTime()
+      : null;
+    const tutup = new Date(kegiatan.deadline).getTime();
+
+    if (mulai !== null && skrg < mulai) {
+      return "belum_mulai";
+    }
+
+    if (skrg >= tutup) {
+      return "tutup";
+    }
+
+    return "buka";
   }
 
   if (loading) {
@@ -192,20 +279,16 @@ export default function AbsensiPage() {
     );
   }
 
-  const deadlineLewat =
-    new Date(kegiatan.deadline).getTime() <= Date.now();
+  const jadwal = statusJadwal();
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-6">
-      <div className="max-w-2xl mx-auto">
-        <div
-          className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6"
-          style={{ animation: "fadeInUp 0.5s ease-out" }}
-        >
-          {/* Tombol kembali */}
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
+      {/* Header */}
+      <header className="bg-gradient-to-r from-blue-700 via-blue-700 to-indigo-700 text-white shadow-lg">
+        <div className="max-w-3xl mx-auto px-6 py-5 flex items-center justify-between">
           <button
             onClick={() => router.push("/dashboard")}
-            className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium text-sm mb-6
+            className="inline-flex items-center gap-2 text-white/90 hover:text-white font-medium text-sm
                        transition-all duration-200 hover:-translate-x-0.5"
           >
             <svg
@@ -225,196 +308,325 @@ export default function AbsensiPage() {
             Kembali ke Dashboard
           </button>
 
-          {/* Judul */}
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="w-5 h-5 text-blue-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-              </svg>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20 flex items-center justify-center p-1.5">
+              <img
+                src="/logo-unib.png"
+                alt="Logo UNIB"
+                className="w-full h-full object-contain"
+              />
             </div>
 
-            <h1 className="text-2xl font-bold tracking-tight text-slate-800">
+            <p className="text-sm font-semibold hidden sm:block">
               Absensi Kegiatan
-            </h1>
+            </p>
           </div>
+        </div>
+      </header>
 
-          {/* Info kegiatan */}
-          <div className="mt-6 border border-slate-200 rounded-xl p-5 bg-slate-50/50">
-            <div className="flex items-start justify-between gap-3">
-              <h2 className="text-lg font-bold text-slate-800">
-                {kegiatan.judul}
-              </h2>
+      <div className="max-w-3xl mx-auto p-6 space-y-6">
+        {/* INFO KEGIATAN */}
+        <section
+          className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden"
+          style={{ animation: "fadeInUp 0.4s ease-out" }}
+        >
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 px-6 py-5 border-b border-blue-100">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-white border border-blue-100 flex items-center justify-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="w-5 h-5 text-blue-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+              </div>
 
-              <span
-                className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
-                  kegiatan.status === "active"
-                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                    : "bg-slate-100 text-slate-700 border border-slate-200"
-                }`}
-              >
-                {kegiatan.status === "active" ? "Aktif" : kegiatan.status}
-              </span>
+              <div>
+                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">
+                  Kegiatan
+                </p>
+                <h1 className="text-lg font-bold text-slate-800 mt-0.5">
+                  {kegiatan.judul}
+                </h1>
+              </div>
             </div>
 
             {kegiatan.deskripsi && (
-              <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+              <p className="text-sm text-slate-600 leading-relaxed">
                 {kegiatan.deskripsi}
               </p>
             )}
-
-            <div className="mt-4">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                Deadline
-              </p>
-
-              <p className="font-medium text-slate-800 text-sm mt-1">
-                {formatTanggal(kegiatan.deadline)}
-              </p>
-            </div>
           </div>
 
-          {/* Kalau deadline lewat */}
-          {deadlineLewat ? (
-            <div className="mt-6 bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 flex items-start gap-3">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="w-5 h-5 flex-shrink-0 mt-0.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+          <div className="p-6 space-y-4">
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="bg-white border border-slate-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="w-4 h-4 text-emerald-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    Mulai Absen
+                  </p>
+                </div>
 
-              <div>
-                <p className="font-medium">
-                  Deadline absensi telah berakhir.
+                <p className="text-sm font-medium text-slate-800">
+                  {kegiatan.absen_mulai
+                    ? formatTanggal(kegiatan.absen_mulai)
+                    : "Kapan saja"}
                 </p>
+              </div>
 
-                <p className="text-sm mt-1 text-red-600/90">
-                  Anda tidak dapat mengirim absensi untuk kegiatan ini.
+              <div className="bg-white border border-slate-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="w-4 h-4 text-red-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    Batas Akhir
+                  </p>
+                </div>
+
+                <p className="text-sm font-medium text-slate-800">
+                  {formatTanggal(kegiatan.deadline)}
                 </p>
               </div>
             </div>
-          ) : (
-            /* Form absensi */
-            <form
-              onSubmit={handleSubmit}
-              className="mt-6 space-y-5"
-            >
-              {/* Upload foto */}
-              <div>
-                <label className="block mb-2 text-sm font-semibold text-slate-700">
-                  Foto Bukti Kehadiran
-                </label>
 
-                <div
-                  className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-all duration-200
-                              ${
-                                foto
-                                  ? "border-emerald-300 bg-emerald-50/40"
-                                  : "border-slate-200 hover:border-blue-300 hover:bg-blue-50/30"
-                              }`}
+            {/* Countdown */}
+            {jadwal === "belum_mulai" && kegiatan.absen_mulai && (
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                  Absensi dibuka dalam
+                </p>
+
+                <p className="text-lg font-bold text-amber-800 mt-1 tabular-nums">
+                  {hitungCountdown(kegiatan.absen_mulai)}
+                </p>
+              </div>
+            )}
+
+            {jadwal === "buka" && (
+              <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
+                  Waktu absensi tersisa
+                </p>
+
+                <p className="text-lg font-bold text-emerald-800 mt-1 tabular-nums">
+                  {hitungCountdown(kegiatan.deadline)}
+                </p>
+              </div>
+            )}
+
+            {jadwal === "tutup" && (
+              <div className="bg-gradient-to-br from-red-50 to-rose-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
                 >
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) =>
-                      setFoto(e.target.files?.[0] || null)
-                    }
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    id="foto-upload"
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                   />
+                </svg>
 
-                  <div className="pointer-events-none">
-                    {foto ? (
-                      <>
-                        <div className="w-12 h-12 rounded-xl bg-emerald-100 border border-emerald-200 flex items-center justify-center mx-auto mb-3">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="w-6 h-6 text-emerald-600"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                            />
-                          </svg>
-                        </div>
+                <div>
+                  <p className="font-semibold text-red-700 text-sm">
+                    Batas akhir absensi telah berakhir
+                  </p>
 
-                        <p className="text-sm font-medium text-emerald-800">
-                          {foto.name}
-                        </p>
-
-                        <p className="text-xs text-emerald-600 mt-1">
-                          Klik untuk mengganti foto
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center mx-auto mb-3">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="w-6 h-6 text-blue-600"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                            />
-                          </svg>
-                        </div>
-
-                        <p className="text-sm font-medium text-slate-700">
-                          Klik untuk memilih foto
-                        </p>
-
-                        <p className="text-xs text-slate-400 mt-1">
-                          Format JPG/PNG, maksimal 5 MB
-                        </p>
-                      </>
-                    )}
-                  </div>
+                  <p className="text-xs text-red-600 mt-1">
+                    Anda tidak dapat mengirim absensi untuk
+                    kegiatan ini.
+                  </p>
                 </div>
               </div>
+            )}
+          </div>
+        </section>
 
-              {/* Checkbox konfirmasi */}
+        {/* FORM ABSENSI */}
+        {jadwal === "buka" && (
+          <section
+            className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6"
+            style={{ animation: "fadeInUp 0.5s ease-out" }}
+          >
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="w-5 h-5 text-blue-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+              </div>
+
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">
+                  Form Absensi
+                </h2>
+
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Upload foto bukti kehadiran dan konfirmasi.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* UPLOAD FOTO */}
+              <div>
+                <label className="block mb-2 text-sm font-semibold text-slate-700">
+                  Foto Bukti Kehadiran{" "}
+                  <span className="text-red-500">*</span>
+                </label>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) =>
+                    setFoto(e.target.files?.[0] || null)
+                  }
+                  className="hidden"
+                />
+
+                {previewUrl ? (
+                  <div className="relative border-2 border-emerald-300 rounded-xl overflow-hidden bg-emerald-50">
+                    <img
+                      src={previewUrl}
+                      alt="Preview foto"
+                      className="w-full h-64 object-cover"
+                    />
+
+                    <div className="absolute top-3 right-3 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          fileInputRef.current?.click()
+                        }
+                        className="bg-white/90 backdrop-blur-sm text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium
+                                   transition-all duration-200
+                                   hover:bg-white hover:shadow-md"
+                      >
+                        Ganti Foto
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFoto(null);
+                          if (fileInputRef.current) {
+                            fileInputRef.current.value = "";
+                          }
+                        }}
+                        className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium
+                                   transition-all duration-200
+                                   hover:bg-red-700 hover:shadow-md"
+                      >
+                        Hapus
+                      </button>
+                    </div>
+
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-3 py-2">
+                      <p className="text-white text-xs font-medium truncate">
+                        {foto?.name}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-slate-300 rounded-xl p-8 text-center
+                               transition-all duration-200
+                               hover:border-blue-400 hover:bg-blue-50/40
+                               group"
+                  >
+                    <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center mx-auto mb-3
+                                    transition-transform duration-200 group-hover:scale-110">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="w-7 h-7 text-blue-600"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                        />
+                      </svg>
+                    </div>
+
+                    <p className="text-sm font-semibold text-slate-700">
+                      Klik untuk memilih foto
+                    </p>
+
+                    <p className="text-xs text-slate-400 mt-1">
+                      Format JPG / PNG · Maksimal 4 MB
+                    </p>
+                  </button>
+                )}
+              </div>
+
+              {/* KONFIRMASI */}
               <label
                 htmlFor="konfirmasi"
-                className={`flex items-start gap-3 border rounded-xl px-4 py-3 cursor-pointer transition-all duration-200
+                className={`flex items-start gap-3 border-2 rounded-xl px-4 py-3 cursor-pointer transition-all duration-200
                             ${
                               konfirmasi
-                                ? "border-blue-300 bg-blue-50/40"
-                                : "border-slate-200 hover:border-blue-200 hover:bg-blue-50/30"
+                                ? "border-blue-400 bg-blue-50/50"
+                                : "border-slate-200 hover:border-blue-300 hover:bg-blue-50/30"
                             }`}
               >
                 <input
@@ -424,7 +636,7 @@ export default function AbsensiPage() {
                   onChange={(e) =>
                     setKonfirmasi(e.target.checked)
                   }
-                  className="mt-0.5 w-4 h-4 accent-blue-600"
+                  className="mt-0.5 w-4 h-4 accent-blue-600 flex-shrink-0"
                 />
 
                 <span className="text-sm text-slate-700 leading-relaxed">
@@ -434,10 +646,10 @@ export default function AbsensiPage() {
                 </span>
               </label>
 
-              {/* Pesan error */}
+              {/* PESAN ERROR */}
               {error && (
                 <div
-                  className="bg-red-50 border border-red-200 text-red-600 text-sm p-3 rounded-xl flex items-start gap-2"
+                  className="bg-red-50 border border-red-200 text-red-700 text-sm p-4 rounded-xl flex items-start gap-3"
                   style={{ animation: "shake 0.4s ease-in-out" }}
                 >
                   <svg
@@ -459,9 +671,9 @@ export default function AbsensiPage() {
                 </div>
               )}
 
-              {/* Pesan sukses */}
+              {/* PESAN SUKSES */}
               {success && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm p-3 rounded-xl flex items-start gap-2">
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm p-4 rounded-xl flex items-start gap-3">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className="w-5 h-5 flex-shrink-0 mt-0.5"
@@ -477,16 +689,21 @@ export default function AbsensiPage() {
                     />
                   </svg>
 
-                  <span>{success}</span>
+                  <div>
+                    <p className="font-medium">{success}</p>
+                    <p className="text-xs text-emerald-600 mt-1">
+                      Mengarahkan ke dashboard...
+                    </p>
+                  </div>
                 </div>
               )}
 
-              {/* Tombol kirim */}
+              {/* TOMBOL KIRIM */}
               <button
                 type="submit"
-                disabled={mengirim}
+                disabled={mengirim || !!success}
                 className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold
-                           py-3 rounded-xl
+                           py-3.5 rounded-xl
                            shadow-lg shadow-blue-200
                            transition-all duration-200
                            hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-300
@@ -539,8 +756,8 @@ export default function AbsensiPage() {
                 )}
               </button>
             </form>
-          )}
-        </div>
+          </section>
+        )}
       </div>
     </main>
   );

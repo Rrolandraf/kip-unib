@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -9,6 +9,9 @@ type Berita = {
   judul: string;
   isi: string;
   published: boolean;
+  lampiran_url: string | null;
+  lampiran_tipe: string | null;
+  lampiran_nama: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -25,6 +28,29 @@ export default function AdminBeritaPage() {
   const [published, setPublished] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Lampiran
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(
+    null
+  );
+  const [previewTipe, setPreviewTipe] = useState<
+    "gambar" | "pdf" | null
+  >(null);
+  const [existingLampiranUrl, setExistingLampiranUrl] = useState<
+    string | null
+  >(null);
+  const [existingLampiranTipe, setExistingLampiranTipe] = useState<
+    string | null
+  >(null);
+  const [existingLampiranNama, setExistingLampiranNama] = useState<
+    string | null
+  >(null);
+  const [hapusLampiran, setHapusLampiran] = useState(false);
+  const [uploadingLampiran, setUploadingLampiran] =
+    useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function getToken() {
     const {
@@ -73,11 +99,49 @@ export default function AdminBeritaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Preview file yang baru dipilih
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      setPreviewTipe(null);
+      return;
+    }
+
+    const tipe = file.type.startsWith("image/")
+      ? "gambar"
+      : file.type === "application/pdf"
+      ? "pdf"
+      : null;
+
+    setPreviewTipe(tipe);
+
+    if (tipe === "gambar") {
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+
+      return () => {
+        URL.revokeObjectURL(url);
+      };
+    } else {
+      setPreviewUrl(null);
+    }
+  }, [file]);
+
   function resetForm() {
     setJudul("");
     setIsi("");
     setPublished(false);
     setEditingId(null);
+    setFile(null);
+    setPreviewUrl(null);
+    setPreviewTipe(null);
+    setExistingLampiranUrl(null);
+    setExistingLampiranTipe(null);
+    setExistingLampiranNama(null);
+    setHapusLampiran(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }
 
   function handleEdit(item: Berita) {
@@ -85,8 +149,70 @@ export default function AdminBeritaPage() {
     setIsi(item.isi);
     setPublished(item.published);
     setEditingId(item.id);
+    setFile(null);
+    setPreviewUrl(null);
+    setPreviewTipe(null);
+    setExistingLampiranUrl(item.lampiran_url);
+    setExistingLampiranTipe(item.lampiran_tipe);
+    setExistingLampiranNama(item.lampiran_nama);
+    setHapusLampiran(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
 
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handlePilihFile(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const f = e.target.files?.[0] || null;
+
+    if (!f) return;
+
+    // Validasi tipe
+    const ok =
+      f.type.startsWith("image/") ||
+      f.type === "application/pdf";
+
+    if (!ok) {
+      alert("File harus berupa gambar (JPG/PNG) atau PDF.");
+      e.target.value = "";
+      return;
+    }
+
+    // Validasi ukuran
+    const MaksGambar = 4 * 1024 * 1024;
+    const MaksPdf = 8 * 1024 * 1024;
+    const maks = f.type === "application/pdf" ? MaksPdf : MaksGambar;
+
+    if (f.size > maks) {
+      alert(
+        f.type === "application/pdf"
+          ? "Ukuran PDF maksimal 8 MB."
+          : "Ukuran gambar maksimal 4 MB."
+      );
+      e.target.value = "";
+      return;
+    }
+
+    setFile(f);
+    setHapusLampiran(false);
+  }
+
+  function hapusFileBaru() {
+    setFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  function tandaiHapusLampiranLama() {
+    setHapusLampiran(true);
+  }
+
+  function batalkanHapusLampiranLama() {
+    setHapusLampiran(false);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -114,6 +240,57 @@ export default function AdminBeritaPage() {
         return;
       }
 
+      // ==========================================
+      // 1. UPLOAD FILE BARU (JIKA ADA)
+      // ==========================================
+      let lampiranUrl = existingLampiranUrl;
+      let lampiranTipe = existingLampiranTipe;
+      let lampiranNama = existingLampiranNama;
+
+      if (file) {
+        setUploadingLampiran(true);
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const uploadRes = await fetch(
+          "/api/admin/berita/upload",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+          }
+        );
+
+        const uploadResult = await uploadRes.json();
+
+        if (!uploadRes.ok) {
+          setError(
+            uploadResult.error || "Gagal mengupload lampiran."
+          );
+          setSaving(false);
+          setUploadingLampiran(false);
+          return;
+        }
+
+        lampiranUrl = uploadResult.lampiran_url;
+        lampiranTipe = uploadResult.lampiran_tipe;
+        lampiranNama = uploadResult.lampiran_nama;
+        setUploadingLampiran(false);
+      }
+
+      // Kalau user tandai hapus lampiran lama
+      if (hapusLampiran && !file) {
+        lampiranUrl = null;
+        lampiranTipe = null;
+        lampiranNama = null;
+      }
+
+      // ==========================================
+      // 2. SIMPAN BERITA
+      // ==========================================
       const isEdit = editingId !== null;
 
       const url = isEdit
@@ -122,17 +299,36 @@ export default function AdminBeritaPage() {
 
       const method = isEdit ? "PUT" : "POST";
 
+      const body: Record<string, unknown> = {
+        judul: judul.trim(),
+        isi: isi.trim(),
+        published,
+        lampiran_url: lampiranUrl,
+        lampiran_tipe: lampiranTipe,
+        lampiran_nama: lampiranNama,
+      };
+
+      // Kalau edit dan sebelumnya ada lampiran lama,
+      // dan user ganti / hapus → minta API hapus file lama
+      if (isEdit && existingLampiranUrl) {
+        const lampiranBerubah =
+          file !== null ||
+          (hapusLampiran && !file) ||
+          lampiranUrl !== existingLampiranUrl;
+
+        if (lampiranBerubah) {
+          body.hapus_lampiran_lama = true;
+          body.lampiran_lama_url = existingLampiranUrl;
+        }
+      }
+
       const res = await fetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          judul: judul.trim(),
-          isi: isi.trim(),
-          published,
-        }),
+        body: JSON.stringify(body),
       });
 
       const result = await res.json();
@@ -149,6 +345,7 @@ export default function AdminBeritaPage() {
       setError("Terjadi kesalahan saat menyimpan berita.");
     } finally {
       setSaving(false);
+      setUploadingLampiran(false);
     }
   }
 
@@ -231,6 +428,14 @@ export default function AdminBeritaPage() {
       dateStyle: "long",
       timeStyle: "short",
     });
+  }
+
+  function formatNamaFile(nama: string | null) {
+    if (!nama) return "";
+    if (nama.length > 40) {
+      return nama.substring(0, 37) + "...";
+    }
+    return nama;
   }
 
   return (
@@ -350,6 +555,221 @@ export default function AdminBeritaPage() {
               />
             </div>
 
+            {/* LAMPIRAN */}
+            <div>
+              <label className="block mb-2 text-sm font-semibold text-slate-700">
+                Lampiran{" "}
+                <span className="text-slate-400 font-normal">
+                  (opsional · gambar atau PDF)
+                </span>
+              </label>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,.pdf,application/pdf"
+                onChange={handlePilihFile}
+                className="hidden"
+              />
+
+              {/* Kalau ada file baru dipilih */}
+              {file ? (
+                <div className="border-2 border-blue-300 bg-blue-50/40 rounded-xl p-4">
+                  {previewTipe === "gambar" && previewUrl ? (
+                    <div className="relative rounded-lg overflow-hidden mb-3">
+                      <img
+                        src={previewUrl}
+                        alt="Preview"
+                        className="w-full max-h-64 object-contain bg-white"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-4 py-3 mb-3">
+                      <div className="w-10 h-10 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center flex-shrink-0">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="w-5 h-5 text-red-600"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                          />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">
+                          {file.name}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          PDF ·{" "}
+                          {(file.size / 1024 / 1024).toFixed(2)} MB
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        fileInputRef.current?.click()
+                      }
+                      className="inline-flex items-center gap-1.5 bg-white text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium
+                                 transition-all duration-200 hover:shadow-md hover:border-slate-300"
+                    >
+                      Ganti File
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={hapusFileBaru}
+                      className="inline-flex items-center gap-1.5 bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium
+                                 transition-all duration-200 hover:bg-red-700"
+                    >
+                      Hapus
+                    </button>
+                  </div>
+                </div>
+              ) : existingLampiranUrl && !hapusLampiran ? (
+                /* Lampiran lama (dari berita yang sedang diedit) */
+                <div className="border border-slate-200 bg-slate-50 rounded-xl p-4">
+                  {existingLampiranTipe === "gambar" ? (
+                    <div className="rounded-lg overflow-hidden mb-3 bg-white border border-slate-200">
+                      <img
+                        src={existingLampiranUrl}
+                        alt="Lampiran lama"
+                        className="w-full max-h-64 object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-4 py-3 mb-3">
+                      <div className="w-10 h-10 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center flex-shrink-0">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="w-5 h-5 text-red-600"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                          />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">
+                          {existingLampiranNama || "lampiran.pdf"}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Lampiran saat ini
+                        </p>
+                      </div>
+                      <a
+                        href={existingLampiranUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-medium text-blue-600 hover:text-blue-800 underline"
+                      >
+                        Lihat
+                      </a>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        fileInputRef.current?.click()
+                      }
+                      className="inline-flex items-center gap-1.5 bg-white text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium
+                                 transition-all duration-200 hover:shadow-md hover:border-slate-300"
+                    >
+                      Ganti Lampiran
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={tandaiHapusLampiranLama}
+                      className="inline-flex items-center gap-1.5 bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium
+                                 transition-all duration-200 hover:bg-red-700"
+                    >
+                      Hapus Lampiran
+                    </button>
+                  </div>
+                </div>
+              ) : hapusLampiran && !file ? (
+                /* Konfirmasi hapus lampiran lama */
+                <div className="border-2 border-dashed border-red-300 bg-red-50 rounded-xl p-4 text-center">
+                  <p className="text-sm text-red-700 font-medium">
+                    Lampiran akan dihapus saat disimpan.
+                  </p>
+
+                  <div className="mt-3 flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={batalkanHapusLampiranLama}
+                      className="bg-white text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium hover:shadow-md"
+                    >
+                      Batal
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        fileInputRef.current?.click()
+                      }
+                      className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700"
+                    >
+                      Pilih File Baru
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Belum ada file */
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full border-2 border-dashed border-slate-300 rounded-xl p-6 text-center
+                             transition-all duration-200
+                             hover:border-blue-400 hover:bg-blue-50/40
+                             group"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="w-6 h-6 text-blue-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                      />
+                    </svg>
+                  </div>
+
+                  <p className="text-sm font-medium text-slate-700">
+                    Klik untuk pilih file lampiran
+                  </p>
+
+                  <p className="text-xs text-slate-400 mt-1">
+                    Gambar (JPG/PNG, maks 4 MB) · PDF (maks 8 MB)
+                  </p>
+                </button>
+              )}
+            </div>
+
             {/* Toggle publish */}
             <label
               htmlFor="published"
@@ -373,7 +793,7 @@ export default function AdminBeritaPage() {
             <div className="flex gap-3">
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || uploadingLampiran}
                 className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2.5 rounded-xl font-semibold text-sm
                            shadow-md shadow-blue-200
                            transition-all duration-200
@@ -381,7 +801,31 @@ export default function AdminBeritaPage() {
                            active:translate-y-0
                            disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0"
               >
-                {saving ? (
+                {uploadingLampiran ? (
+                  <>
+                    <svg
+                      className="animate-spin w-4 h-4"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                      />
+                    </svg>
+                    Mengupload Lampiran...
+                  </>
+                ) : saving ? (
                   <>
                     <svg
                       className="animate-spin w-4 h-4"
@@ -471,7 +915,9 @@ export default function AdminBeritaPage() {
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
+                className={`w-4 h-4 ${
+                  loading ? "animate-spin" : ""
+                }`}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -533,6 +979,51 @@ export default function AdminBeritaPage() {
                     {item.isi}
                   </p>
 
+                  {/* Lampiran */}
+                  {item.lampiran_url && item.lampiran_tipe && (
+                    <div className="mt-4">
+                      {item.lampiran_tipe === "gambar" ? (
+                        <a
+                          href={item.lampiran_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block group"
+                        >
+                          <img
+                            src={item.lampiran_url}
+                            alt={item.lampiran_nama || "Lampiran"}
+                            className="max-h-48 rounded-lg border border-slate-200 group-hover:shadow-md transition-all"
+                          />
+                        </a>
+                      ) : (
+                        <a
+                          href={item.lampiran_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 bg-red-50 text-red-700 border border-red-200 px-3 py-2 rounded-lg text-xs font-medium
+                                     transition-all duration-200 hover:bg-red-100"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="w-4 h-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                            />
+                          </svg>
+                          {formatNamaFile(item.lampiran_nama) ||
+                            "Lihat PDF"}
+                        </a>
+                      )}
+                    </div>
+                  )}
+
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -541,20 +1032,6 @@ export default function AdminBeritaPage() {
                                  transition-all duration-200
                                  hover:bg-blue-700 hover:-translate-y-0.5 hover:shadow-md"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="w-3.5 h-3.5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                        />
-                      </svg>
                       Edit
                     </button>
 
@@ -569,48 +1046,9 @@ export default function AdminBeritaPage() {
                                      : "bg-emerald-600 hover:bg-emerald-700"
                                  }`}
                     >
-                      {item.published ? (
-                        <>
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="w-3.5 h-3.5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                            />
-                          </svg>
-                          Jadikan Draft
-                        </>
-                      ) : (
-                        <>
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="w-3.5 h-3.5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                            />
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                            />
-                          </svg>
-                          Publikasikan
-                        </>
-                      )}
+                      {item.published
+                        ? "Jadikan Draft"
+                        : "Publikasikan"}
                     </button>
 
                     <button
@@ -620,20 +1058,6 @@ export default function AdminBeritaPage() {
                                  transition-all duration-200
                                  hover:bg-red-700 hover:-translate-y-0.5 hover:shadow-md"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="w-3.5 h-3.5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                      </svg>
                       Hapus
                     </button>
                   </div>

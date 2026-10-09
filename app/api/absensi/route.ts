@@ -97,11 +97,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const maksimalUkuran = 5 * 1024 * 1024;
+    const maksimalUkuran = 4 * 1024 * 1024;
 
     if (foto.size > maksimalUkuran) {
       return NextResponse.json(
-        { error: "Ukuran foto maksimal 5 MB." },
+        {
+          error:
+            "Ukuran foto maksimal 4 MB. Silakan kompres foto terlebih dahulu.",
+        },
         { status: 400 }
       );
     }
@@ -112,7 +115,7 @@ export async function POST(request: NextRequest) {
     const { data: kegiatan, error: kegiatanError } =
       await supabaseAdmin
         .from("kegiatan")
-        .select("id, judul, deadline, status")
+        .select("id, judul, deadline, absen_mulai, status")
         .eq("id", kegiatanId)
         .single();
 
@@ -136,14 +139,32 @@ export async function POST(request: NextRequest) {
     }
 
     // ==========================================
-    // 7. CEK DEADLINE DI SERVER
+    // 7. CEK JADWAL ABSEN (MULAI & BATAS AKHIR)
     // ==========================================
     const sekarang = new Date();
-    const deadline = new Date(kegiatan.deadline);
+    const sekarangMs = sekarang.getTime();
 
-    if (sekarang.getTime() >= deadline.getTime()) {
+    // Cek apakah absen sudah dibuka
+    if (kegiatan.absen_mulai) {
+      const mulaiMs = new Date(kegiatan.absen_mulai).getTime();
+
+      if (sekarangMs < mulaiMs) {
+        return NextResponse.json(
+          {
+            error:
+              "Absensi belum dibuka. Silakan tunggu sampai waktu mulai absen.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Cek apakah deadline sudah lewat
+    const deadlineMs = new Date(kegiatan.deadline).getTime();
+
+    if (sekarangMs >= deadlineMs) {
       return NextResponse.json(
-        { error: "Deadline absensi telah berakhir." },
+        { error: "Batas akhir absensi telah berakhir." },
         { status: 400 }
       );
     }
@@ -238,7 +259,6 @@ export async function POST(request: NextRequest) {
         insertError
       );
 
-      // Jika database gagal, hapus foto yang sudah terupload
       await supabaseAdmin.storage
         .from("absensi")
         .remove([filePath]);

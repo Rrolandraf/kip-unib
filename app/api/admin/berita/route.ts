@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-// ==========================================
-// HELPER: CEK ADMIN
-// ==========================================
 async function cekAdmin(request: NextRequest) {
   const authorization = request.headers.get("authorization");
 
@@ -28,11 +25,12 @@ async function cekAdmin(request: NextRequest) {
     return { error: "Sesi login tidak valid.", status: 401 } as const;
   }
 
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  const { data: profile, error: profileError } =
+    await supabaseAdmin
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
 
   if (profileError || !profile || profile.role !== "admin") {
     return {
@@ -61,7 +59,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("berita")
       .select(
-        "id, judul, isi, published, created_at, updated_at, created_by"
+        "id, judul, isi, published, lampiran_url, lampiran_tipe, lampiran_nama, created_at, updated_at, created_by"
       )
       .order("created_at", { ascending: false });
 
@@ -104,6 +102,15 @@ export async function POST(request: NextRequest) {
     const judul = String(body.judul ?? "").trim();
     const isi = String(body.isi ?? "").trim();
     const published = Boolean(body.published ?? false);
+    const lampiranUrl = body.lampiran_url
+      ? String(body.lampiran_url).trim()
+      : null;
+    const lampiranTipe = body.lampiran_tipe
+      ? String(body.lampiran_tipe).trim()
+      : null;
+    const lampiranNama = body.lampiran_nama
+      ? String(body.lampiran_nama).trim()
+      : null;
 
     if (!judul) {
       return NextResponse.json(
@@ -127,6 +134,9 @@ export async function POST(request: NextRequest) {
         judul,
         isi,
         published,
+        lampiran_url: lampiranUrl,
+        lampiran_tipe: lampiranTipe,
+        lampiran_nama: lampiranNama,
         created_by: cek.user.id,
         created_at: now,
         updated_at: now,

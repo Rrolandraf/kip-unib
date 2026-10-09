@@ -65,23 +65,22 @@ export default function LoginMahasiswa() {
         className="relative w-full max-w-md bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl border border-slate-100 p-8"
         style={{ animation: "fadeInUp 0.5s ease-out" }}
       >
-        {/* Logo / ikon */}
-      {/* Logo UNIB */}
-<div className="flex justify-center mb-4">
-  <div
-    className="w-20 h-20 rounded-2xl bg-white border-2 border-blue-600 flex items-center justify-center shadow-md p-2"
-    style={{ animation: "fadeIn 0.6s ease-out" }}
-  >
-    <img
-      src="/logo-unib.png"
-      alt="Logo Universitas Bengkulu"
-      className="w-full h-full object-contain"
-    />
-  </div>
-</div>
+        {/* Logo UNIB */}
+        <div className="flex justify-center mb-4">
+          <div
+            className="w-20 h-20 rounded-2xl bg-white border-2 border-blue-600 flex items-center justify-center shadow-md p-2"
+            style={{ animation: "fadeIn 0.6s ease-out" }}
+          >
+            <img
+              src="/logo-unib.png"
+              alt="Logo Universitas Bengkulu"
+              className="w-full h-full object-contain"
+            />
+          </div>
+        </div>
 
         <h1 className="text-2xl font-bold text-center tracking-tight text-slate-800">
-          Login Mahasiswa KIP
+          Login Mahasiswa
         </h1>
 
         <p className="text-center text-slate-500 mt-1 mb-8 text-sm">

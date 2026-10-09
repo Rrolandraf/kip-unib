@@ -98,7 +98,7 @@ export default function AdminLoginPage() {
         </h1>
 
         <p className="text-center text-slate-500 mt-1 mb-8 text-sm">
-          Sistem Informasi KIP Kuliah Universitas Bengkulu
+          Sistem Informasi Beasiswa Universitas Bengkulu
         </p>
 
         <form onSubmit={handleLogin} className="space-y-5">

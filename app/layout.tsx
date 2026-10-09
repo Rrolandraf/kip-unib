@@ -15,11 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: {
     default:
-      "Sistem Informasi KIP Kuliah — Universitas Bengkulu",
-    template: "%s | KIP Kuliah UNIB",
+      "Sistem Informasi Beasiswa — Universitas Bengkulu",
+    template: "%s | Beasiswa UNIB",
   },
   description:
-    "Platform terintegrasi untuk mengelola data mahasiswa penerima KIP Kuliah, kegiatan, absensi, dan pengumuman di lingkungan Universitas Bengkulu.",
+    "Platform terintegrasi untuk mengelola data mahasiswa penerima beasiswa, kegiatan, absensi, dan pengumuman di lingkungan Universitas Bengkulu.",
   icons: {
     icon: "/icon.png",
   },

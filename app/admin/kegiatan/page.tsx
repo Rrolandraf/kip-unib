@@ -8,12 +8,14 @@ type Kegiatan = {
   judul: string;
   deskripsi: string | null;
   deadline: string;
+  absen_mulai: string | null;
   status: string;
 };
 
 export default function KegiatanAdminPage() {
   const [nama, setNama] = useState("");
   const [deskripsi, setDeskripsi] = useState("");
+  const [absenMulai, setAbsenMulai] = useState("");
   const [deadline, setDeadline] = useState("");
 
   const [kegiatan, setKegiatan] = useState<Kegiatan[]>([]);
@@ -46,7 +48,9 @@ export default function KegiatanAdminPage() {
 
       const { data, error } = await supabase
         .from("kegiatan")
-        .select("id, judul, deskripsi, deadline, status")
+        .select(
+          "id, judul, deskripsi, deadline, absen_mulai, status"
+        )
         .order("deadline", { ascending: true });
 
       if (error) {
@@ -81,8 +85,20 @@ export default function KegiatanAdminPage() {
     }
 
     if (!deadline) {
-      setError("Deadline wajib diisi.");
+      setError("Batas akhir absen wajib diisi.");
       return;
+    }
+
+    if (absenMulai && deadline) {
+      const tglMulai = new Date(absenMulai).getTime();
+      const tglDeadline = new Date(deadline).getTime();
+
+      if (tglMulai >= tglDeadline) {
+        setError(
+          "Jam mulai absen harus lebih awal dari batas akhir absen."
+        );
+        return;
+      }
     }
 
     setLoading(true);
@@ -110,6 +126,7 @@ export default function KegiatanAdminPage() {
           nama: nama.trim(),
           deskripsi: deskripsi.trim(),
           deadline,
+          absen_mulai: absenMulai || null,
         }),
       });
 
@@ -125,6 +142,7 @@ export default function KegiatanAdminPage() {
 
       setNama("");
       setDeskripsi("");
+      setAbsenMulai("");
       setDeadline("");
 
       await loadKegiatan();
@@ -137,18 +155,12 @@ export default function KegiatanAdminPage() {
   }
 
   async function handleDelete(item: Kegiatan) {
-    // ==========================================
-    // Konfirmasi 1: peringatan umum
-    // ==========================================
     const konfirmasi1 = window.confirm(
       `PERHATIAN!\n\nMenghapus kegiatan "${item.judul}" akan MENGHAPUS SEMUA data absensi mahasiswa yang terkait (termasuk foto bukti).\n\nData yang dihapus TIDAK DAPAT dikembalikan.\n\nLanjutkan?`
     );
 
     if (!konfirmasi1) return;
 
-    // ==========================================
-    // Konfirmasi 2: konfirmasi terakhir
-    // ==========================================
     const konfirmasi2 = window.confirm(
       `Konfirmasi terakhir.\n\nKetik OK untuk benar-benar menghapus kegiatan "${item.judul}" beserta seluruh absensi dan fotonya.`
     );
@@ -248,7 +260,7 @@ export default function KegiatanAdminPage() {
               </h1>
 
               <p className="text-slate-500 mt-0.5 text-sm">
-                Sistem Informasi KIP Kuliah Universitas Bengkulu
+                Sistem Informasi Beasiswa Universitas Bengkulu
               </p>
             </div>
           </div>
@@ -312,7 +324,7 @@ export default function KegiatanAdminPage() {
           </div>
 
           <p className="text-slate-500 text-sm mb-6 mt-1">
-            Tambahkan kegiatan KIP Kuliah untuk mahasiswa.
+            Tambahkan kegiatan untuk mahasiswa penerima beasiswa.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -325,7 +337,7 @@ export default function KegiatanAdminPage() {
                 type="text"
                 value={nama}
                 onChange={(e) => setNama(e.target.value)}
-                placeholder="Contoh: Pembinaan Mahasiswa KIP"
+                placeholder="Contoh: Pembinaan Mahasiswa Beasiswa"
                 required
                 className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 placeholder:text-slate-400
                            transition-all duration-200
@@ -351,26 +363,76 @@ export default function KegiatanAdminPage() {
               />
             </div>
 
-            <div>
-              <label className="block mb-2 text-sm font-semibold text-slate-700">
-                Deadline
-              </label>
+            {/* JADWAL ABSEN */}
+            <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="w-4 h-4 text-blue-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
 
-              <input
-                type="datetime-local"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-                required
-                className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-slate-800
-                           transition-all duration-200
-                           focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100
-                           hover:border-slate-300"
-              />
+                <p className="text-sm font-semibold text-blue-900">
+                  Jadwal Absensi
+                </p>
+              </div>
 
-              <p className="text-xs text-slate-400 mt-1.5">
-                Mahasiswa hanya dapat melakukan absensi sebelum
-                deadline.
-              </p>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block mb-2 text-sm font-semibold text-slate-700">
+                    Mulai Absen
+                  </label>
+
+                  <input
+                    type="datetime-local"
+                    value={absenMulai}
+                    onChange={(e) =>
+                      setAbsenMulai(e.target.value)
+                    }
+                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-slate-800
+                               transition-all duration-200
+                               focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100
+                               hover:border-slate-300"
+                  />
+
+                  <p className="text-xs text-slate-500 mt-1.5">
+                    <b>Opsional.</b> Kalau diisi, mahasiswa hanya
+                    bisa absen mulai dari waktu ini. Kalau
+                    dikosongkan, absen bisa dilakukan kapan saja
+                    sebelum batas akhir.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block mb-2 text-sm font-semibold text-slate-700">
+                    Batas Akhir Absen
+                  </label>
+
+                  <input
+                    type="datetime-local"
+                    value={deadline}
+                    onChange={(e) => setDeadline(e.target.value)}
+                    required
+                    className="w-full border-2 border-slate-200 rounded-xl px-4 py-2.5 text-slate-800
+                               transition-all duration-200
+                               focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100
+                               hover:border-slate-300"
+                  />
+
+                  <p className="text-xs text-slate-500 mt-1.5">
+                    Mahasiswa tidak dapat absen setelah waktu ini.
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="flex gap-3">
@@ -489,14 +551,28 @@ export default function KegiatanAdminPage() {
                         </p>
                       )}
 
-                      <div className="mt-4">
-                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                          Deadline
-                        </p>
+                      <div className="mt-4 grid sm:grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                            Mulai Absen
+                          </p>
 
-                        <p className="font-medium text-slate-800 text-sm mt-1">
-                          {formatTanggal(item.deadline)}
-                        </p>
+                          <p className="font-medium text-slate-800 text-sm mt-1">
+                            {item.absen_mulai
+                              ? formatTanggal(item.absen_mulai)
+                              : "— (kapan saja)"}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                            Batas Akhir Absen
+                          </p>
+
+                          <p className="font-medium text-slate-800 text-sm mt-1">
+                            {formatTanggal(item.deadline)}
+                          </p>
+                        </div>
                       </div>
                     </div>
 
