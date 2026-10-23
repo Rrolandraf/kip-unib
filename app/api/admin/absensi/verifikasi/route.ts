@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-// ==========================================
-// BATAS WAKTU VERCEL — 60 detik
-// ==========================================
-export const maxDuration = 60;
-
 export async function POST(request: NextRequest) {
   try {
     // ==========================================
@@ -52,67 +47,75 @@ export async function POST(request: NextRequest) {
 
     if (profileError || !profile || profile.role !== "admin") {
       return NextResponse.json(
-        { error: "Akses hanya untuk admin." },
+        {
+          error:
+            "Akses ditolak. Hanya admin yang dapat memverifikasi absensi.",
+        },
         { status: 403 }
       );
     }
 
     // ==========================================
-    // 3. AMBIL KEGIATAN_ID
+    // 3. AMBIL ID ABSENSI
     // ==========================================
     const body = await request.json();
-    const kegiatanId = body.kegiatan_id;
+    const attendanceId = body.attendance_id;
 
-    if (!kegiatanId || typeof kegiatanId !== "string") {
+    if (!attendanceId || typeof attendanceId !== "string") {
       return NextResponse.json(
-        { error: "ID kegiatan wajib dikirim." },
+        { error: "ID absensi wajib dikirim." },
         { status: 400 }
       );
     }
 
     // ==========================================
-    // 4. CEK JUMLAH DATA PENDING
+    // 4. PASTIKAN DATA ABSENSI ADA
     // ==========================================
-    const { count, error: countError } = await supabaseAdmin
-      .from("absensi")
-      .select("id", { count: "exact", head: true })
-      .eq("kegiatan_id", kegiatanId)
-      .eq("status", "pending");
+    const { data: absensi, error: absensiError } =
+      await supabaseAdmin
+        .from("absensi")
+        .select("id, status")
+        .eq("id", attendanceId)
+        .single();
 
-    if (countError) {
-      console.error("COUNT PENDING ERROR:", countError);
-
+    if (absensiError || !absensi) {
       return NextResponse.json(
-        { error: "Gagal memeriksa data absensi pending." },
-        { status: 500 }
+        { error: "Data absensi tidak ditemukan." },
+        { status: 404 }
       );
     }
 
-    const jumlahPending = count ?? 0;
-
-    if (jumlahPending === 0) {
+    // ==========================================
+    // 5. TOLAK JIKA SUDAH BERSTATUS verified
+    // ==========================================
+    if (absensi.status === "verified") {
       return NextResponse.json(
-        { error: "Tidak ada absensi berstatus pending untuk kegiatan ini." },
+        {
+          error:
+            "Absensi ini sudah berstatus terverifikasi.",
+        },
         { status: 400 }
       );
     }
 
     // ==========================================
-    // 5. UPDATE SEMUA PENDING JADI VERIFIED
+    // 6. UPDATE STATUS = verified
     // ==========================================
-    const { error: updateError } = await supabaseAdmin
-      .from("absensi")
-      .update({
-        status: "verified",
-        diverifikasi_at: new Date().toISOString(),
-        diverifikasi_by: user.id,
-      })
-      .eq("kegiatan_id", kegiatanId)
-      .eq("status", "pending");
+    const { data, error: updateError } =
+      await supabaseAdmin
+        .from("absensi")
+        .update({
+          status: "verified",
+          diverifikasi_at: new Date().toISOString(),
+          diverifikasi_by: user.id,
+        })
+        .eq("id", attendanceId)
+        .select()
+        .single();
 
     if (updateError) {
       console.error(
-        "VERIFIKASI SEMUA ERROR:",
+        "VERIFIKASI ABSENSI ERROR:",
         updateError
       );
 
@@ -124,14 +127,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `${jumlahPending} absensi berhasil diverifikasi.`,
-      jumlah: jumlahPending,
+      message: "Absensi berhasil diverifikasi.",
+      absensi: data,
     });
   } catch (error) {
-    console.error(
-      "VERIFIKASI SEMUA API ERROR:",
-      error
-    );
+    console.error("VERIFIKASI ABSENSI API ERROR:", error);
 
     return NextResponse.json(
       { error: "Terjadi kesalahan pada server." },
