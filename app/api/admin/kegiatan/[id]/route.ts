@@ -39,6 +39,94 @@ async function cekAdmin(request: NextRequest) {
   return { user } as const;
 }
 
+// ==========================================
+// PUT: EDIT KEGIATAN
+// ==========================================
+export async function PUT(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await context.params;
+
+    const cek = await cekAdmin(request);
+
+    if ("error" in cek) {
+      return NextResponse.json(
+        { error: cek.error },
+        { status: cek.status }
+      );
+    }
+
+    const body = await request.json();
+    const nama = body.nama?.trim();
+    const deskripsi = body.deskripsi?.trim() || null;
+    const deadline = body.deadline;
+    const absenMulai = body.absen_mulai || null;
+
+    if (!nama) {
+      return NextResponse.json(
+        { error: "Nama kegiatan wajib diisi." },
+        { status: 400 }
+      );
+    }
+
+    if (!deadline) {
+      return NextResponse.json(
+        { error: "Batas akhir absen wajib diisi." },
+        { status: 400 }
+      );
+    }
+
+    if (absenMulai) {
+      const tglMulai = new Date(absenMulai).getTime();
+      const tglDeadline = new Date(deadline).getTime();
+
+      if (tglMulai >= tglDeadline) {
+        return NextResponse.json(
+          { error: "Jam mulai absen harus lebih awal dari batas akhir absen." },
+          { status: 400 }
+        );
+      }
+    }
+
+    const { data: kegiatan, error: updateError } =
+      await supabaseAdmin
+        .from("kegiatan")
+        .update({
+          judul: nama,
+          deskripsi,
+          deadline: new Date(deadline).toISOString(),
+          absen_mulai: absenMulai ? new Date(absenMulai).toISOString() : null,
+        })
+        .eq("id", id)
+        .select()
+        .single();
+
+    if (updateError) {
+      console.error("UPDATE KEGIATAN ERROR:", updateError);
+      return NextResponse.json(
+        { error: updateError.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      message: "Kegiatan berhasil diperbarui.",
+      kegiatan,
+    });
+  } catch (error) {
+    console.error("PUT KEGIATAN API ERROR:", error);
+    return NextResponse.json(
+      { error: "Terjadi kesalahan pada server." },
+      { status: 500 }
+    );
+  }
+}
+
+// ==========================================
+// DELETE: HAPUS KEGIATAN (TETAP SEPERTI SEBELUMNYA)
+// ==========================================
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -55,9 +143,6 @@ export async function DELETE(
       );
     }
 
-    // ==========================================
-    // 1. Pastikan kegiatan ada
-    // ==========================================
     const { data: kegiatan, error: getError } =
       await supabaseAdmin
         .from("kegiatan")
@@ -72,9 +157,6 @@ export async function DELETE(
       );
     }
 
-    // ==========================================
-    // 2. Ambil semua absensi terkait (untuk hapus foto)
-    // ==========================================
     const { data: absensiList, error: absensiError } =
       await supabaseAdmin
         .from("absensi")
@@ -82,11 +164,6 @@ export async function DELETE(
         .eq("kegiatan_id", id);
 
     if (absensiError) {
-      console.error(
-        "AMBIL ABSENSI TERKAIT ERROR:",
-        absensiError
-      );
-
       return NextResponse.json(
         { error: "Gagal mengambil data absensi terkait." },
         { status: 500 }
@@ -96,9 +173,6 @@ export async function DELETE(
     const daftarAbsensi = absensiList || [];
     const jumlahAbsensi = daftarAbsensi.length;
 
-    // ==========================================
-    // 3. Hapus foto absensi di Supabase Storage
-    // ==========================================
     if (jumlahAbsensi > 0) {
       const paths = daftarAbsensi
         .map((a) => a.foto_url)
@@ -108,25 +182,12 @@ export async function DELETE(
         );
 
       if (paths.length > 0) {
-        const { error: storageError } =
-          await supabaseAdmin.storage
-            .from("absensi")
-            .remove(paths);
-
-        if (storageError) {
-          // Tidak fatal — lanjut hapus database
-          console.error(
-            "HAPUS FOTO STORAGE ERROR:",
-            storageError
-          );
-        }
+        await supabaseAdmin.storage
+          .from("absensi")
+          .remove(paths)
+          .catch((err) => console.error("STORAGE ERROR:", err));
       }
-    }
 
-    // ==========================================
-    // 4. Hapus baris absensi terkait
-    // ==========================================
-    if (jumlahAbsensi > 0) {
       const { error: deleteAbsensiError } =
         await supabaseAdmin
           .from("absensi")
@@ -134,25 +195,13 @@ export async function DELETE(
           .eq("kegiatan_id", id);
 
       if (deleteAbsensiError) {
-        console.error(
-          "HAPUS ABSENSI ERROR:",
-          deleteAbsensiError
-        );
-
         return NextResponse.json(
-          {
-            error:
-              "Gagal menghapus data absensi terkait: " +
-              deleteAbsensiError.message,
-          },
+          { error: "Gagal menghapus data absensi terkait: " + deleteAbsensiError.message },
           { status: 500 }
         );
       }
     }
 
-    // ==========================================
-    // 5. Hapus kegiatan
-    // ==========================================
     const { error: deleteKegiatanError } =
       await supabaseAdmin
         .from("kegiatan")
@@ -160,11 +209,6 @@ export async function DELETE(
         .eq("id", id);
 
     if (deleteKegiatanError) {
-      console.error(
-        "DELETE KEGIATAN ERROR:",
-        deleteKegiatanError
-      );
-
       return NextResponse.json(
         { error: deleteKegiatanError.message },
         { status: 500 }
@@ -173,15 +217,10 @@ export async function DELETE(
 
     return NextResponse.json({
       success: true,
-      message:
-        jumlahAbsensi > 0
-          ? `Kegiatan "${kegiatan.judul}" berhasil dihapus beserta ${jumlahAbsensi} data absensi terkait.`
-          : `Kegiatan "${kegiatan.judul}" berhasil dihapus.`,
-      jumlahAbsensiTerhapus: jumlahAbsensi,
+      message: `Kegiatan "${kegiatan.judul}" berhasil dihapus beserta ${jumlahAbsensi} data absensi terkait.`,
     });
   } catch (error) {
     console.error("DELETE KEGIATAN API ERROR:", error);
-
     return NextResponse.json(
       { error: "Terjadi kesalahan pada server." },
       { status: 500 }

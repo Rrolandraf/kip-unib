@@ -12,11 +12,29 @@ type Kegiatan = {
   status: string;
 };
 
+// ==========================================
+// HELPER: FORMAT ISO UTC KE DATETIME-LOCAL (WIB)
+// ==========================================
+function toLocalDatetime(isoString: string | null) {
+  if (!isoString) return "";
+  const date = new Date(isoString);
+  const pad = (num: number) => String(num).padStart(2, "0");
+  
+  const yyyy = date.getFullYear();
+  const MM = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const HH = pad(date.getHours());
+  const mm = pad(date.getMinutes());
+  
+  return `${yyyy}-${MM}-${dd}T${HH}:${mm}`;
+}
+
 export default function KegiatanAdminPage() {
   const [nama, setNama] = useState("");
   const [deskripsi, setDeskripsi] = useState("");
   const [absenMulai, setAbsenMulai] = useState("");
   const [deadline, setDeadline] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const [kegiatan, setKegiatan] = useState<Kegiatan[]>([]);
 
@@ -69,6 +87,26 @@ export default function KegiatanAdminPage() {
     loadKegiatan();
   }, []);
 
+  function resetForm() {
+    setNama("");
+    setDeskripsi("");
+    setAbsenMulai("");
+    setDeadline("");
+    setEditingId(null);
+    setError("");
+  }
+
+  function handleEdit(item: Kegiatan) {
+    setNama(item.judul);
+    setDeskripsi(item.deskripsi || "");
+    setAbsenMulai(toLocalDatetime(item.absen_mulai));
+    setDeadline(toLocalDatetime(item.deadline));
+    setEditingId(item.id);
+    setError("");
+    setSuccess("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -90,9 +128,7 @@ export default function KegiatanAdminPage() {
       const tglDeadline = new Date(deadline).getTime();
 
       if (tglMulai >= tglDeadline) {
-        setError(
-          "Jam mulai absen harus lebih awal dari batas akhir absen."
-        );
+        setError("Jam mulai absen harus lebih awal dari batas akhir absen.");
         return;
       }
     }
@@ -112,21 +148,15 @@ export default function KegiatanAdminPage() {
         return;
       }
 
-      // ==========================================
-      // KONVERSI LOCAL TIME KE UTC DI CLIENT
-      // ==========================================
-      // Input datetime-local menghasilkan string
-      // "2026-10-13T08:00" (tanpa timezone).
-      // new Date() di browser menganggapnya sebagai
-      // local time (WIB). toISOString() mengubahnya
-      // jadi UTC yang benar.
-      const deadlineISO = new Date(deadline).toISOString();
-      const absenMulaiISO = absenMulai
-        ? new Date(absenMulai).toISOString()
-        : null;
+      const isEdit = editingId !== null;
+      const url = isEdit ? `/api/admin/kegiatan/${editingId}` : "/api/admin/kegiatan";
+      const method = isEdit ? "PUT" : "POST";
 
-      const response = await fetch("/api/admin/kegiatan", {
-        method: "POST",
+      const deadlineISO = new Date(deadline).toISOString();
+      const absenMulaiISO = absenMulai ? new Date(absenMulai).toISOString() : null;
+
+      const response = await fetch(url, {
+        method,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
@@ -142,18 +172,14 @@ export default function KegiatanAdminPage() {
       const result = await response.json();
 
       if (!response.ok) {
-        setError(result.error || "Gagal membuat kegiatan.");
+        setError(result.error || "Gagal menyimpan kegiatan.");
         setLoading(false);
         return;
       }
 
-      setSuccess("Kegiatan berhasil ditambahkan.");
+      setSuccess(isEdit ? "Kegiatan berhasil diperbarui." : "Kegiatan berhasil ditambahkan.");
 
-      setNama("");
-      setDeskripsi("");
-      setAbsenMulai("");
-      setDeadline("");
-
+      resetForm();
       await loadKegiatan();
     } catch (error) {
       console.error("ERROR SIMPAN KEGIATAN:", error);
@@ -304,36 +330,36 @@ export default function KegiatanAdminPage() {
           </div>
         )}
 
-        {/* FORM TAMBAH KEGIATAN */}
+        {/* FORM TAMBAH/EDIT KEGIATAN */}
         <div
           className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6"
           style={{ animation: "fadeInUp 0.5s ease-out" }}
         >
           <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
+            <div className={`w-10 h-10 rounded-xl ${editingId ? 'bg-amber-50 border-amber-100' : 'bg-blue-50 border-blue-100'} border flex items-center justify-center`}>
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="w-5 h-5 text-blue-600"
+                className={`w-5 h-5 ${editingId ? 'text-amber-600' : 'text-blue-600'}`}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 strokeWidth={2}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 4v16m8-8H4"
-                />
+                {editingId ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                )}
               </svg>
             </div>
 
             <h2 className="text-lg font-bold text-slate-800">
-              Tambah Kegiatan
+              {editingId ? "Edit Kegiatan" : "Tambah Kegiatan"}
             </h2>
           </div>
 
           <p className="text-slate-500 text-sm mb-6 mt-1">
-            Tambahkan kegiatan untuk mahasiswa penerima beasiswa.
+            {editingId ? "Ubah data kegiatan di bawah ini." : "Tambahkan kegiatan untuk mahasiswa penerima beasiswa."}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -372,7 +398,6 @@ export default function KegiatanAdminPage() {
               />
             </div>
 
-            {/* JADWAL ABSEN */}
             <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-3">
                 <svg
@@ -414,10 +439,7 @@ export default function KegiatanAdminPage() {
                   />
 
                   <p className="text-xs text-slate-500 mt-1.5">
-                    <b>Opsional.</b> Kalau diisi, mahasiswa hanya
-                    bisa absen mulai dari waktu ini. Kalau
-                    dikosongkan, absen bisa dilakukan kapan saja
-                    sebelum batas akhir.
+                    Opsional. Mahasiswa hanya bisa absen mulai waktu ini.
                   </p>
                 </div>
 
@@ -448,12 +470,13 @@ export default function KegiatanAdminPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2.5 rounded-xl font-semibold text-sm
-                           shadow-md shadow-blue-200
-                           transition-all duration-200
-                           hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300
-                           active:translate-y-0
-                           disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+                className={`inline-flex items-center gap-2 text-white px-6 py-2.5 rounded-xl font-semibold text-sm
+                           shadow-md transition-all duration-200
+                           hover:-translate-y-0.5 hover:shadow-lg
+                           active:translate-y-0 disabled:opacity-60 disabled:cursor-not-allowed
+                           ${editingId 
+                             ? 'bg-gradient-to-r from-amber-500 to-orange-500 shadow-amber-200 hover:shadow-amber-300' 
+                             : 'bg-gradient-to-r from-blue-600 to-indigo-600 shadow-blue-200 hover:shadow-blue-300'}`}
               >
                 {loading ? (
                   <>
@@ -479,22 +502,38 @@ export default function KegiatanAdminPage() {
                     </svg>
                     Menyimpan...
                   </>
+                ) : editingId ? (
+                  "Simpan Perubahan"
                 ) : (
                   "Simpan Kegiatan"
                 )}
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  window.location.href = "/admin";
-                }}
-                className="bg-white text-slate-700 border border-slate-200 px-5 py-2.5 rounded-xl font-medium text-sm
-                           transition-all duration-200
-                           hover:-translate-y-0.5 hover:shadow-md hover:border-slate-300"
-              >
-                Batal
-              </button>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="bg-white text-slate-700 border border-slate-200 px-5 py-2.5 rounded-xl font-medium text-sm
+                             transition-all duration-200
+                             hover:-translate-y-0.5 hover:shadow-md hover:border-slate-300"
+                >
+                  Batal Edit
+                </button>
+              )}
+
+              {!editingId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = "/admin";
+                  }}
+                  className="bg-white text-slate-700 border border-slate-200 px-5 py-2.5 rounded-xl font-medium text-sm
+                             transition-all duration-200
+                             hover:-translate-y-0.5 hover:shadow-md hover:border-slate-300"
+                >
+                  Batal
+                </button>
+              )}
             </div>
           </form>
         </div>
@@ -594,59 +633,85 @@ export default function KegiatanAdminPage() {
                         {statusLabel(item.status)}
                       </span>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(item)}
-                        disabled={deletingId === item.id}
-                        className="inline-flex items-center gap-1.5 bg-red-600 text-white px-3.5 py-2 rounded-lg text-xs font-medium
-                                   transition-all duration-200
-                                   hover:bg-red-700 hover:-translate-y-0.5 hover:shadow-md
-                                   disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                      >
-                        {deletingId === item.id ? (
-                          <>
-                            <svg
-                              className="animate-spin w-3.5 h-3.5"
-                              xmlns="http://www.w3.org/2000/svg"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                            >
-                              <circle
-                                className="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(item)}
+                          className="inline-flex items-center gap-1.5 bg-blue-600 text-white px-3.5 py-2 rounded-lg text-xs font-medium
+                                     transition-all duration-200
+                                     hover:bg-blue-700 hover:-translate-y-0.5 hover:shadow-md"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                            />
+                          </svg>
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(item)}
+                          disabled={deletingId === item.id}
+                          className="inline-flex items-center gap-1.5 bg-red-600 text-white px-3.5 py-2 rounded-lg text-xs font-medium
+                                     transition-all duration-200
+                                     hover:bg-red-700 hover:-translate-y-0.5 hover:shadow-md
+                                     disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+                        >
+                          {deletingId === item.id ? (
+                            <>
+                              <svg
+                                className="animate-spin w-3.5 h-3.5"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                                />
+                              </svg>
+                              Menghapus...
+                            </>
+                          ) : (
+                            <>
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="w-3.5 h-3.5"
+                                fill="none"
+                                viewBox="0 0 24 24"
                                 stroke="currentColor"
-                                strokeWidth="4"
-                              />
-                              <path
-                                className="opacity-75"
-                                fill="currentColor"
-                                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                              />
-                            </svg>
-                            Menghapus...
-                          </>
-                        ) : (
-                          <>
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              className="w-3.5 h-3.5"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                              />
-                            </svg>
-                            Hapus
-                          </>
-                        )}
-                      </button>
+                                strokeWidth={2}
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                              </svg>
+                              Hapus
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

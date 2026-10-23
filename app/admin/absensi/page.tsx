@@ -37,6 +37,11 @@ export default function AbsensiAdminPage() {
   const [selectedKegiatanId, setSelectedKegiatanId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("semua");
   const [editingId, setEditingId] = useState<string | null>(null);
+  
+  // State untuk Batch
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [loadingBatch, setLoadingBatch] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [loadingVerifSemua, setLoadingVerifSemua] = useState(false);
@@ -107,6 +112,74 @@ export default function AbsensiAdminPage() {
 
   useEffect(() => { loadData(); }, []);
 
+  // ==========================================
+  // FUNGSI BATCH (MASSAL)
+  // ==========================================
+  async function handleBatchAction(action: "verified" | "rejected") {
+    if (selectedIds.length === 0) return;
+
+    const actionText = action === "verified" ? "memverifikasi" : "menolak";
+    const konfirmasi = window.confirm(
+      `Apakah Anda yakin ingin ${actionText} ${selectedIds.length} absensi terpilih?`
+    );
+    if (!konfirmasi) return;
+
+    setLoadingBatch(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        alert("Sesi login admin tidak ditemukan.");
+        return;
+      }
+
+      const response = await fetch("/api/admin/absensi/batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ ids: selectedIds, action }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(result.error || `Gagal ${actionText} absensi.`);
+        return;
+      }
+
+      alert(result.message || "Berhasil.");
+      setSelectedIds([]); // Reset pilihan
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      alert("Terjadi kesalahan.");
+    } finally {
+      setLoadingBatch(false);
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  function toggleSelectAll() {
+    const pendingIds = absensiTampil
+      .filter((a) => a.status === "pending")
+      .map((a) => a.id);
+
+    if (selectedIds.length === pendingIds.length && pendingIds.length > 0) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(pendingIds);
+    }
+  }
+
+  // ==========================================
+  // FUNGSI INDIVIDUAL (TETAP ADA)
+  // ==========================================
   async function verifikasiAbsensi(id: string) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -263,11 +336,16 @@ export default function AbsensiAdminPage() {
     [absensiKegiatanIni]
   );
 
+  // State untuk Pilih Semua (hanya yg pending dan terlihat di layar)
+  const pendingDiLayar = absensiTampil.filter((a) => a.status === "pending");
+  const isAllSelected = pendingDiLayar.length > 0 && selectedIds.length === pendingDiLayar.length;
+
   function handleBukaKegiatan(id: string) {
     setSelectedKegiatanId(id);
     setFilterStatus("semua");
     setEditingId(null);
     setCari("");
+    setSelectedIds([]); // Reset
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function handleKembaliKeDaftar() {
@@ -275,10 +353,11 @@ export default function AbsensiAdminPage() {
     setFilterStatus("semua");
     setEditingId(null);
     setCari("");
+    setSelectedIds([]); // Reset
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-6">
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-6 pb-24">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center justify-between" style={{ animation: "fadeInUp 0.4s ease-out" }}>
           <div className="flex items-center gap-4">
@@ -487,99 +566,161 @@ export default function AbsensiAdminPage() {
                     : "Tidak ada absensi yang cocok dengan filter."}
                 </div>
               ) : (
-                <div className="space-y-5">
-                  {absensiTampil.map((item) => {
-                    const signedUrl = fotoUrls[item.foto_url];
-                    const isEditing = editingId === item.id;
-                    const showAksi = item.status === "pending" || isEditing;
-                    return (
-                      <div key={item.id} className="border border-slate-200 rounded-2xl p-5 hover:border-blue-200 hover:shadow-md transition-all">
-                        <div className="flex flex-col lg:flex-row gap-6">
-                          <div className="w-full lg:w-56">
-                            <p className="text-xs font-semibold text-slate-400 uppercase mb-2">Foto Absensi</p>
-                            {signedUrl ? (
-                              <a href={signedUrl} target="_blank" rel="noopener noreferrer">
-                                <img src={signedUrl} alt="Foto absensi" className="w-full h-48 object-cover rounded-xl border border-slate-200 hover:scale-[1.02] transition-transform" />
-                              </a>
-                            ) : (
-                              <div className="h-48 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 text-sm">
-                                {item.foto_url ? "Memuat foto..." : "Tidak ada foto"}
+                <>
+                  {/* Header Tabel / Pilih Semua */}
+                  {pendingDiLayar.length > 0 && (
+                    <div className="mb-4 flex items-center gap-2 px-1">
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <span className="text-sm font-medium text-slate-700 cursor-pointer" onClick={toggleSelectAll}>
+                        Pilih Semua ({pendingDiLayar.length} Menunggu)
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="space-y-5">
+                    {absensiTampil.map((item) => {
+                      const signedUrl = fotoUrls[item.foto_url];
+                      const isEditing = editingId === item.id;
+                      const showAksi = item.status === "pending" || isEditing;
+                      const isSelected = selectedIds.includes(item.id);
+
+                      return (
+                        <div key={item.id} className={`border rounded-2xl p-5 transition-all ${isSelected ? 'border-blue-400 bg-blue-50/20 shadow-sm' : 'border-slate-200 hover:border-blue-200 hover:shadow-md'}`}>
+                          <div className="flex flex-col lg:flex-row gap-6">
+                            
+                            {/* Checkbox (Hanya untuk yang pending) */}
+                            {item.status === "pending" && (
+                              <div className="flex items-start pt-1">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleSelect(item.id)}
+                                  className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                />
                               </div>
                             )}
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                              <div>
-                                <h3 className="text-lg font-bold text-slate-800">{item.mahasiswa?.nama || "Nama tidak ditemukan"}</h3>
-                                <p className="text-slate-500 text-sm font-mono mt-0.5">NPM: {item.mahasiswa?.npm || "-"}</p>
-                                {item.mahasiswa?.fakultas && (
-                                  <p className="text-xs text-slate-500 mt-1">
-                                    {item.mahasiswa.fakultas}
-                                    {item.mahasiswa.prodi ? ` · ${item.mahasiswa.prodi}` : ""}
-                                    {item.mahasiswa.angkatan ? ` · ${item.mahasiswa.angkatan}` : ""}
-                                  </p>
-                                )}
-                              </div>
-                              <span className={`inline-block w-fit px-3 py-1.5 rounded-full text-xs font-medium ${statusBadge(item.status)}`}>
-                                {statusLabel(item.status)}
-                              </span>
+
+                            <div className="w-full lg:w-56">
+                              <p className="text-xs font-semibold text-slate-400 uppercase mb-2">Foto Absensi</p>
+                              {signedUrl ? (
+                                <a href={signedUrl} target="_blank" rel="noopener noreferrer">
+                                  <img src={signedUrl} alt="Foto absensi" className="w-full h-48 object-cover rounded-xl border border-slate-200 hover:scale-[1.02] transition-transform" />
+                                </a>
+                              ) : (
+                                <div className="h-48 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 text-sm">
+                                  {item.foto_url ? "Memuat foto..." : "Tidak ada foto"}
+                                </div>
+                              )}
                             </div>
-                            <div className="mt-5 grid md:grid-cols-2 gap-4">
-                              <div>
-                                <p className="text-xs font-semibold text-slate-400 uppercase">Waktu Absensi</p>
-                                <p className="font-medium text-slate-800 mt-1 text-sm">{formatTanggal(item.waktu_absen)}</p>
+                            <div className="flex-1">
+                              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                                <div>
+                                  <h3 className="text-lg font-bold text-slate-800">{item.mahasiswa?.nama || "Nama tidak ditemukan"}</h3>
+                                  <p className="text-slate-500 text-sm font-mono mt-0.5">NPM: {item.mahasiswa?.npm || "-"}</p>
+                                  {item.mahasiswa?.fakultas && (
+                                    <p className="text-xs text-slate-500 mt-1">
+                                      {item.mahasiswa.fakultas}
+                                      {item.mahasiswa.prodi ? ` · ${item.mahasiswa.prodi}` : ""}
+                                      {item.mahasiswa.angkatan ? ` · ${item.mahasiswa.angkatan}` : ""}
+                                    </p>
+                                  )}
+                                </div>
+                                <span className={`inline-block w-fit px-3 py-1.5 rounded-full text-xs font-medium ${statusBadge(item.status)}`}>
+                                  {statusLabel(item.status)}
+                                </span>
                               </div>
-                              <div>
-                                <p className="text-xs font-semibold text-slate-400 uppercase">Konfirmasi Mahasiswa</p>
-                                <p className="font-medium text-slate-800 mt-1 text-sm">{item.konfirmasi ? "Sudah dikonfirmasi" : "Belum dikonfirmasi"}</p>
+                              <div className="mt-5 grid md:grid-cols-2 gap-4">
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-400 uppercase">Waktu Absensi</p>
+                                  <p className="font-medium text-slate-800 mt-1 text-sm">{formatTanggal(item.waktu_absen)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-400 uppercase">Konfirmasi Mahasiswa</p>
+                                  <p className="font-medium text-slate-800 mt-1 text-sm">{item.konfirmasi ? "Sudah dikonfirmasi" : "Belum dikonfirmasi"}</p>
+                                </div>
                               </div>
-                            </div>
-                            {showAksi ? (
-                              <div className="mt-5 flex flex-wrap gap-3">
-                                <button
-                                  type="button"
-                                  onClick={() => verifikasiAbsensi(item.id)}
-                                  disabled={item.status === "verified"}
-                                  className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-emerald-700 disabled:opacity-50"
-                                >
-                                  ✓ Verifikasi
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => tolakAbsensi(item.id)}
-                                  disabled={item.status === "rejected"}
-                                  className="inline-flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-red-700 disabled:opacity-50"
-                                >
-                                  ✕ Tolak
-                                </button>
-                                {isEditing && (
-                                  <button type="button" onClick={() => setEditingId(null)} className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-xl font-medium text-sm">
-                                    Batal
+                              {showAksi ? (
+                                <div className="mt-5 flex flex-wrap gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => verifikasiAbsensi(item.id)}
+                                    disabled={item.status === "verified"}
+                                    className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-emerald-700 disabled:opacity-50"
+                                  >
+                                    ✓ Verifikasi
                                   </button>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="mt-5">
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingId(item.id)}
-                                  className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-blue-700"
-                                >
-                                  Ubah
-                                </button>
-                              </div>
-                            )}
+                                  <button
+                                    type="button"
+                                    onClick={() => tolakAbsensi(item.id)}
+                                    disabled={item.status === "rejected"}
+                                    className="inline-flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-red-700 disabled:opacity-50"
+                                  >
+                                    ✕ Tolak
+                                  </button>
+                                  {isEditing && (
+                                    <button type="button" onClick={() => setEditingId(null)} className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-xl font-medium text-sm">
+                                      Batal
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="mt-5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingId(item.id)}
+                                    className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-blue-700"
+                                  >
+                                    Ubah
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </div>
           </div>
         )}
       </div>
+
+      {/* ============================================ */}
+      {/* FLOATING ACTION BAR (MUNCUL SAAT ADA YANG DICENTANG) */}
+      {/* ============================================ */}
+      {selectedIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-[fadeInUp_0.3s_ease-out]">
+          <div className="bg-slate-900 text-white shadow-2xl rounded-2xl p-2 pl-5 flex items-center gap-4 border border-slate-700">
+            <span className="text-sm font-medium whitespace-nowrap">
+              {selectedIds.length} terpilih
+            </span>
+            <div className="h-6 w-px bg-slate-700"></div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleBatchAction("verified")}
+                disabled={loadingBatch}
+                className="inline-flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-all disabled:opacity-50"
+              >
+                {loadingBatch ? "Memproses..." : "✓ Verifikasi Terpilih"}
+              </button>
+              <button
+                onClick={() => handleBatchAction("rejected")}
+                disabled={loadingBatch}
+                className="inline-flex items-center gap-1.5 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-all disabled:opacity-50"
+              >
+                {loadingBatch ? "Memproses..." : "✕ Tolak Terpilih"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

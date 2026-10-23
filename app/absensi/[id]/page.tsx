@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import imageCompression from "browser-image-compression";
 
 type Kegiatan = {
   id: string;
@@ -27,6 +28,7 @@ export default function AbsensiPage() {
   );
   const [konfirmasi, setKonfirmasi] = useState(false);
   const [mengirim, setMengirim] = useState(false);
+  const [sedangKompresi, setSedangKompresi] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [sekarang, setSekarang] = useState(new Date());
@@ -89,6 +91,51 @@ export default function AbsensiPage() {
 
     loadKegiatan();
   }, [kegiatanId, router]);
+
+  // ==========================================
+  // HANDLER UPLOAD FOTO + KOMPRESI
+  // ==========================================
+  async function handleFileChange(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset input agar bisa upload file yang sama
+    e.target.value = "";
+
+    if (!file.type.startsWith("image/")) {
+      setError("File harus berupa gambar (JPG/PNG).");
+      return;
+    }
+
+    setError("");
+    setSedangKompresi(true);
+
+    try {
+      // Opsi kompresi
+      const options = {
+        maxSizeMB: 0.5,          // Target ukuran maksimal 500 KB
+        maxWidthOrHeight: 1280,  // Resolusi maksimal 1280px
+        useWebWorker: true,      // Berjalan di background agar tidak freeze
+      };
+
+      const compressedFile = await imageCompression(file, options);
+
+      // Buat File object baru agar nama file asli tetap ada (opsional)
+      const newFile = new File([compressedFile], file.name, {
+        type: compressedFile.type,
+        lastModified: Date.now(),
+      });
+
+      setFoto(newFile);
+    } catch (err) {
+      console.error("KOMPRESI ERROR:", err);
+      setError("Gagal memproses gambar. Silakan coba lagi.");
+    } finally {
+      setSedangKompresi(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -188,9 +235,6 @@ export default function AbsensiPage() {
     return `${menit} menit ${detik} detik`;
   }
 
-  // ==========================================
-  // STATUS JADWAL
-  // ==========================================
   function statusJadwal(): "belum_mulai" | "buka" | "tutup" {
     if (!kegiatan) return "tutup";
 
@@ -532,13 +576,41 @@ export default function AbsensiPage() {
                   ref={fileInputRef}
                   type="file"
                   accept="image/*"
-                  onChange={(e) =>
-                    setFoto(e.target.files?.[0] || null)
-                  }
+                  onChange={handleFileChange}
+                  disabled={sedangKompresi || mengirim}
                   className="hidden"
                 />
 
-                {previewUrl ? (
+                {sedangKompresi ? (
+                  <div className="w-full border-2 border-dashed border-blue-300 bg-blue-50/40 rounded-xl p-8 text-center">
+                    <svg
+                      className="animate-spin w-8 h-8 text-blue-600 mx-auto mb-3"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                      />
+                    </svg>
+                    <p className="text-sm font-semibold text-blue-700">
+                      Memproses foto...
+                    </p>
+                    <p className="text-xs text-blue-500 mt-1">
+                      Sedang mengompres ukuran gambar.
+                    </p>
+                  </div>
+                ) : previewUrl ? (
                   <div className="relative border-2 border-emerald-300 rounded-xl overflow-hidden bg-emerald-50">
                     <img
                       src={previewUrl}
@@ -552,9 +624,10 @@ export default function AbsensiPage() {
                         onClick={() =>
                           fileInputRef.current?.click()
                         }
+                        disabled={mengirim}
                         className="bg-white/90 backdrop-blur-sm text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium
                                    transition-all duration-200
-                                   hover:bg-white hover:shadow-md"
+                                   hover:bg-white hover:shadow-md disabled:opacity-50"
                       >
                         Ganti Foto
                       </button>
@@ -567,28 +640,35 @@ export default function AbsensiPage() {
                             fileInputRef.current.value = "";
                           }
                         }}
+                        disabled={mengirim}
                         className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium
                                    transition-all duration-200
-                                   hover:bg-red-700 hover:shadow-md"
+                                   hover:bg-red-700 hover:shadow-md disabled:opacity-50"
                       >
                         Hapus
                       </button>
                     </div>
 
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-3 py-2">
-                      <p className="text-white text-xs font-medium truncate">
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-3 py-2 flex justify-between items-end">
+                      <p className="text-white text-xs font-medium truncate max-w-[70%]">
                         {foto?.name}
                       </p>
+                      {foto && (
+                        <span className="text-white/80 text-[10px] bg-black/40 px-2 py-0.5 rounded">
+                          {(foto.size / 1024 / 1024).toFixed(2)} MB
+                        </span>
+                      )}
                     </div>
                   </div>
                 ) : (
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
+                    disabled={mengirim}
                     className="w-full border-2 border-dashed border-slate-300 rounded-xl p-8 text-center
                                transition-all duration-200
                                hover:border-blue-400 hover:bg-blue-50/40
-                               group"
+                               group disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center mx-auto mb-3
                                     transition-transform duration-200 group-hover:scale-110">
@@ -613,7 +693,7 @@ export default function AbsensiPage() {
                     </p>
 
                     <p className="text-xs text-slate-400 mt-1">
-                      Format JPG / PNG · Maksimal 4 MB
+                      Format JPG / PNG · Otomatis dikompres
                     </p>
                   </button>
                 )}
@@ -701,7 +781,7 @@ export default function AbsensiPage() {
               {/* TOMBOL KIRIM */}
               <button
                 type="submit"
-                disabled={mengirim || !!success}
+                disabled={mengirim || !!success || sedangKompresi}
                 className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold
                            py-3.5 rounded-xl
                            shadow-lg shadow-blue-200
