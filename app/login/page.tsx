@@ -4,60 +4,80 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-export default function LoginMahasiswa() {
+export default function LoginPage() {
   const router = useRouter();
 
-  const [npm, setNpm] = useState("");
+  const [identifier, setIdentifier] = useState(""); // Bisa NPM atau Email
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-
     setError("");
     setLoading(true);
 
-    const email = `${npm.trim()}@kip.unib.ac.id`;
+    // Deteksi jika input mengandung '@', anggap Email. 
+    // Jika tidak, anggap NPM dan tambahkan domain kampus.
+    let email = identifier.trim();
+    if (!email.includes("@")) {
+      email = `${email}@kip.unib.ac.id`;
+    }
 
-    const { data, error: loginError } =
-      await supabase.auth.signInWithPassword({
-        email,
+    try {
+      // 1. Login ke Supabase Auth
+      const { data, error: loginError } = await supabase.auth.signInWithPassword({
+        email: email.toLowerCase(), // Pastikan huruf kecil
         password,
       });
 
-    if (loginError || !data.user) {
-      setError("NPM atau password salah.");
-      setLoading(false);
-      return;
-    }
+      if (loginError || !data.user) {
+        setError("NPM atau password salah.");
+        setLoading(false);
+        return;
+      }
 
-    const { data: mahasiswa, error: mahasiswaError } =
-      await supabase
-        .from("mahasiswa")
-        .select("must_change_password")
-        .eq("profile_id", data.user.id)
+      // 2. Cek Role dari tabel profiles
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", data.user.id)
         .single();
 
-    if (mahasiswaError || !mahasiswa) {
-      setError("Data mahasiswa tidak ditemukan.");
-      await supabase.auth.signOut();
+      if (profileError || !profile) {
+        setError("Data profil tidak ditemukan.");
+        await supabase.auth.signOut();
+        setLoading(false);
+        return;
+      }
+
+      // 3. Redirect berdasarkan Role
+      if (profile.role === "admin") {
+        router.push("/admin");
+      } else {
+        // Cek apakah mahasiswa wajib ganti password
+        const { data: mahasiswa } = await supabase
+          .from("mahasiswa")
+          .select("must_change_password")
+          .eq("profile_id", data.user.id)
+          .single();
+
+        if (mahasiswa?.must_change_password) {
+          router.push("/ubah-password");
+        } else {
+          router.push("/dashboard");
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Terjadi kesalahan pada sistem.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    if (mahasiswa.must_change_password) {
-      router.push("/ubah-password");
-    } else {
-      router.push("/dashboard");
-    }
-
-    setLoading(false);
   }
 
   return (
     <main className="min-h-screen relative flex items-center justify-center p-4 overflow-hidden bg-gradient-to-br from-blue-50 via-white to-blue-100">
-      {/* Dekorasi background: bulatan blur */}
       <div className="pointer-events-none absolute -top-32 -left-32 w-96 h-96 bg-blue-300/30 rounded-full blur-3xl" />
       <div className="pointer-events-none absolute -bottom-32 -right-32 w-96 h-96 bg-indigo-300/30 rounded-full blur-3xl" />
 
@@ -65,7 +85,6 @@ export default function LoginMahasiswa() {
         className="relative w-full max-w-md bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl border border-slate-100 p-8"
         style={{ animation: "fadeInUp 0.5s ease-out" }}
       >
-        {/* Logo UNIB */}
         <div className="flex justify-center mb-4">
           <div
             className="w-20 h-20 rounded-2xl bg-white border-2 border-blue-600 flex items-center justify-center shadow-md p-2"
@@ -80,11 +99,11 @@ export default function LoginMahasiswa() {
         </div>
 
         <h1 className="text-2xl font-bold text-center tracking-tight text-slate-800">
-          Login Mahasiswa
+          Login
         </h1>
 
         <p className="text-center text-slate-500 mt-1 mb-8 text-sm">
-          Universitas Bengkulu
+          Beasiswa Universitas Bengkulu
         </p>
 
         <form onSubmit={handleLogin} className="space-y-5">
@@ -95,8 +114,8 @@ export default function LoginMahasiswa() {
 
             <input
               type="text"
-              value={npm}
-              onChange={(e) => setNpm(e.target.value)}
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               placeholder="Masukkan NPM"
               required
               className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-slate-800
@@ -145,7 +164,6 @@ export default function LoginMahasiswa() {
                   d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
                 />
               </svg>
-
               <span>{error}</span>
             </div>
           )}
@@ -193,7 +211,7 @@ export default function LoginMahasiswa() {
         </form>
 
         <p className="text-center text-xs text-slate-400 mt-6">
-          Hubungi admin jika Anda mengalami kendala login.
+          Silahkan Login dengan NPM atau Pasword Anda
         </p>
       </div>
     </main>
